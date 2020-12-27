@@ -58,9 +58,10 @@ class MockRequestPost:
 
 class MockRequestPostRaw:
 
-    def __init__(self, param1: bytes):
+    def __init__(self, param1: bytes, **kwargs):
         self.can_read_body = True
         self.byte_content = param1
+        self.query = kwargs
 
     async def read(self):
         return self.byte_content
@@ -87,9 +88,10 @@ class MockRequestPostStream:
             self.is_eof = len(self._content_lines) == 0
             return line
 
-    def __init__(self, param1: bytes):
+    def __init__(self, param1: bytes, **kwargs):
         self.can_read_body = True
         self.content = self.StreamReader(param1)
+        self.query = kwargs
 
 
 class TestDecoratorUtils:

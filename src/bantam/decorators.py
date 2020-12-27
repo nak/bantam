@@ -50,7 +50,7 @@ def _serialize_return_value(value: Any, encoding: str) -> bytes:
     :param value: value to convert
     :return: bytes serialized from value
     """
-    if isinstance(value, (str, bool, int, float, bool)):
+    if isinstance(value, (str, bool, int, float)):
         return str(value).encode(encoding)
     elif hasattr(value, 'serialize'):
         try:
@@ -131,8 +131,11 @@ async def _invoke_post_api_wrapper(func, content_type: str, request: Request):
         del annotations['return']
     try:
         kwargs = None
-        if len(annotations) == 1:
-            key, typ = list(annotations.items())[0]
+        async_annotations = [a for a in annotations.items() if a[1] in (bytes, AsyncChunkGenerator, AsyncLineGenerator)]
+        if async_annotations:
+            if not len(async_annotations) == 1:
+                raise ValueError("At most one parameter of holding onf of the types: bytes, AsyncChunkGenerator or AsynLineGenerator is allowed")
+            key, typ = async_annotations[0]
             if typ == bytes:
                 kwargs = {key: await request.read()}
             elif typ == AsyncLineGenerator:
@@ -147,7 +150,8 @@ async def _invoke_post_api_wrapper(func, content_type: str, request: Request):
                     while not reader.is_eof:
                         yield await reader.read(packet_size)
                 kwargs = {key: iterator}
-        if kwargs is None:
+            kwargs.update({k: _convert_request_param(v, annotations[k]) for k, v in request.query.items()})
+        else:
             # treat payload as json string:
             bytes_response = await request.read()
             json_dict = json.loads(bytes_response.decode('utf-8'))
@@ -234,9 +238,9 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET):
             return await _invoke_get_api_wrapper(func, content_type=content_type, request=request)
 
         if method == RestMethod.GET:
-            WebApplication.register_route_get(route, invoke)
+            WebApplication.register_route_get(route, invoke, func, content_type)
         elif method == RestMethod.POST:
-            WebApplication.register_route_post(route, invoke)
+            WebApplication.register_route_post(route, invoke, func, content_type)
         else:
             raise ValueError(f"Method provide was not an instance of MethodEnum")
         return func
