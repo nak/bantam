@@ -1,6 +1,6 @@
 import asyncio
 from pathlib import Path
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
 from aiohttp import web
 
@@ -26,7 +26,7 @@ class RestAPIExample:
 
     @web_api(content_type='text/json', method=RestMethod.GET)
     @staticmethod
-    async def api_get_stream(param1: int, param2: bool, param3: float, param4: str) -> AsyncGenerator[None, int]:
+    async def api_get_stream(param1: int, param2: bool, param3: float, param4: Optional[str] = None) -> AsyncGenerator[None, int]:
         """
         Some sort of doc
         :param param1:
@@ -37,10 +37,11 @@ class RestAPIExample:
         """
         for index in range(10):
             yield index
+            await asyncio.sleep(0.02)
 
-    @web_api(content_type='text/json', method=RestMethod.POST)
+    @web_api(content_type='text/json', method=RestMethod.GET)
     @staticmethod
-    async def api_post_stream(param1: int, param2: bool, param3: float, param4: str) -> AsyncGenerator[None, str]:
+    async def api_get_stream_text(param1: int, param2: bool, param3: float, param4: Optional[str] = None) -> AsyncGenerator[None, str]:
         """
         Some sort of doc
         :param param1:
@@ -50,7 +51,37 @@ class RestAPIExample:
         :return: stream of int
         """
         for index in range(10):
-            yield str(index)
+            yield f"COUNT: {index}\n"
+            await asyncio.sleep(0.02)
+        yield "DONE"
+
+    @web_api(content_type='text/json', method=RestMethod.POST)
+    @staticmethod
+    async def api_post_basic(param1: int, param2: bool, param3: float, param4: Optional[str] = "text") -> str:
+        """
+        Some sort of doc
+        :param param1:
+        :param param2:
+        :param param3:
+        :param param4:
+        :return: stream of int
+        """
+        return "called basic post operation"
+
+    @web_api(content_type='text/json', method=RestMethod.POST)
+    @staticmethod
+    async def api_post_stream(param1: int, param2: bool, param3: float, param4: str) -> AsyncGenerator[None, int]:
+        """
+        Some sort of doc
+        :param param1:
+        :param param2:
+        :param param3:
+        :param param4:
+        :return: stream of int
+        """
+        for index in range(10):
+            yield index
+            await asyncio.sleep(0.02)
 
     @web_api(content_type='text/plain', method=RestMethod.POST)
     @staticmethod
@@ -66,6 +97,23 @@ class RestAPIExample:
         """
         async for line in param4:
             yield f"ECHO: {line}"
+            await asyncio.sleep(0.02)
+
+    @web_api(content_type='text/json', method=RestMethod.GET)
+    @staticmethod
+    async def api_post_stream_text(param1: int, param2: bool, param3: float, param4: Optional[str] = None) -> AsyncGenerator[None, str]:
+        """
+        Some sort of doc
+        :param param1:
+        :param param2:
+        :param param3:
+        :param param4:
+        :return: stream of int
+        """
+        for index in range(10):
+            yield f"COUNT: {index}\n"
+            await asyncio.sleep(0.02)
+        yield "DONE"
 
 
 class TestJavascriptGenerator:

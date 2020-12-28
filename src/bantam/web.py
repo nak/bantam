@@ -43,6 +43,6 @@ class WebApplication(Application):
         for route, api_get in self.routes_get.items():
             self.router.add_get(route, api_get)
         for route, api_post in self.routes_post.items():
-            self.router.add_get(route, api_post)
+            self.router.add_post(route, api_post)
         if static_path:
             self.add_routes([web.static('/static', str(static_path))])

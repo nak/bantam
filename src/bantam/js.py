@@ -1,6 +1,7 @@
 import inspect
+import re
 from collections import Coroutine
-from typing import Dict, Tuple, List, IO
+from typing import Dict, Tuple, List, IO, Type
 
 from bantam.decorators import RestMethod
 from bantam.web import WebApplication
@@ -82,12 +83,12 @@ class JavascriptGenerator:
                         if method == RestMethod.GET:
                             cls._generate_get_request(out, route_, api, tab, content_type, streamed_resp=True)
                         else:
-                            cls._generate_post_request(out, route_, api, tab, content_type, streamed_resp=True)
+                            cls._generate_request(out, route_, RestMethod.POST, api, tab, content_type, streamed_resp=True)
                     else:
                         if method == RestMethod.GET:
                             cls._generate_get_request(out, route_, api, tab, content_type, streamed_resp=False)
                         else:
-                            cls._generate_post_request(out, route_, api, tab, content_type, streamed_resp=False)
+                            cls._generate_request(out, route_, RestMethod.POST, api, tab, content_type, streamed_resp=False)
                 tab = tab[:-3]
                 out.write(f"}};\n".encode(cls.ENCODING))  # for class end
 
@@ -99,73 +100,222 @@ class JavascriptGenerator:
             process_namespace(namespace, name)
 
     @classmethod
-    def _generate_docs(cls, out: IO, api, return_type, tab, callback: str = 'onsuccess') -> None:
+    def _generate_docs(cls, out: IO, api, tab, callback: str = 'onsuccess') -> None:
         def prefix(text: str, tab: str):
             new_text = ""
             for line in text.splitlines():
                 new_text += tab + line.strip() + '\n'
             return new_text
-        return_type_name = 'bytes' if (return_type == bytes or
-                                       getattr(return_type, '_name', None) == 'AsyncGenerator') \
-            else return_type.__name__
-        out.write(f"""\n{tab}/*
-{tab}{(prefix(api.__doc__, tab) or "<<No API documentation provided>>").replace(':returns:', 'response:').replace(':return:', '@response:')}
-{tab}@param {{({return_type_name}, bool) => Any}} {callback} callback invoked on successful response, 
-{tab}    with the first parambeing the response from the server (typed according to underlying Python API),
-{tab}    and the second indicating  whether  the response is completed (for streamed responses)
-{tab}@param {{(int, str) => null}}  onerror  callback upon error, passing in response code and status text
+        basic_doc_parts = (prefix(api.__doc__, tab) or "<<No API documentation provided>>").\
+            replace(':return:', ':returns:').split(':param', maxsplit=1)
+        if len(basic_doc_parts) == 1:
+            basic_doc = basic_doc_parts[0]
+            params_doc = ""
+        else:
+            basic_doc, params_doc = basic_doc_parts
+            params_doc = ':param ' + params_doc
+
+        annotations = dict(api.__annotations__)
+        name_map = {'str': 'string', 'bool': 'boolean', 'int': 'number [int]', 'float': 'number [float]'}
+        response_type_name = "<<unspecified>>"
+        return_cb_type_name = None
+        type_name = None
+        for name, typ in annotations.items():
+            try:
+                if hasattr(typ, 'deserialize'):
+                    type_name = f"str serialization of {name_map.get(type_name, type_name)}"
+                elif hasattr(typ, '_name') and typ._name == 'AsyncGenerator':
+                    var_type_name = typ.__args__[1].__name__
+                    if name != 'return':
+                        type_name = None
+                    else:
+                        return_cb_type_name = var_type_name
+                elif str(typ).startswith('typing.Union') and typ.__args__[1] == type(None):
+                    type_name = name_map.get(typ.__args__[0].__name__, type_name)
+                    type_name = f"{{{type_name} [optional]}}"
+                else:
+                    type_name = typ.__name__
+            except Exception:
+                type_name = "<<unrecognized>>"
+            if type_name:
+                type_name = name_map.get(type_name, type_name)
+                if name == 'return':
+                    response_type_name = type_name
+                else:
+                    params_doc = re.sub(f":param *{name} *:", f"@param {{{{{type_name}}}}} {name}", params_doc)
+            else:
+                params_doc = re.sub(f":param *{name}.*", "@REMOVE@", params_doc)
+        lines = params_doc.splitlines()
+        params_doc = ""
+        remove_line = False
+        # remove parameter that has been moved as a return callback function and documented as such:
+        for line in lines:
+            if '@REMOVE@' in line:
+                remove_line = True
+            elif not remove_line:
+                params_doc += f"{line}\n"
+            elif '@param' in line:
+                remove_line = False
+                params_doc += f"{line}\n"
+
+        if return_cb_type_name:
+            params_doc += f"{tab}@return {{{{function({return_cb_type_name}) => null}}}} callback to send streamed chunks to server"
+        if callback == 'onreceive':
+            cb_docs = f"""
+{tab}@param {{function({response_type_name}, bool) => null}} {callback} callback invoked on each chunk received from server 
+{tab}@param {{function(int, str) => null}}  onerror  callback upon error, passing in response code and status text
+"""
+        else:
+            cb_docs = f"""
+{tab}@param {{function({response_type_name}) => null}} {callback} callback inoked, passing in response from server on success
+{tab}@param {{function(int, str) => null}}  onerror  callback upon error, passing in response code and status text
+"""
+        docs = f"""\n{tab}/*
+{tab}{basic_doc.strip()}
+{tab}
+{tab}{cb_docs.strip()}
+{tab}{params_doc.strip()}
 {tab}*/
-""".replace(':param ', '@param ').encode(cls.ENCODING))
+"""
+        lines = [line for line in docs.splitlines() if not line.strip().startswith(':return')]
+        docs = '\n'.join(lines) + '\n'
+        out.write(docs.encode(cls.ENCODING))
 
     @classmethod
-    def _generate_post_request(cls, out: IO, route: str, api: Coroutine, tab: str, content_type: str, streamed_resp: bool):
+    def _generate_request(cls, out: IO, route: str, method: RestMethod,
+                          api: Coroutine, tab: str, content_type: str, streamed_resp: bool):
         annotations = dict(api.__annotations__)
-        return_type = annotations.get('return')
-        if return_type is None:
-            return_type = str
+        response_type = annotations.get('return')
+        if response_type is None:
+            response_type = 'string'
         else:
-            return_type = return_type.__args__[1]
-        if 'return' in annotations:
+            if hasattr(response_type, '_name') and response_type._name == "AsyncGenerator":
+                response_type = response_type.__args__[1]
             del annotations['return']
-        if streamed_resp:
+        if streamed_resp is True:
             callback = 'onreceive'
-            condition2 = 3
+            state = 3
         else:
             callback = 'onsuccess'
-            condition2 = 'XMLHttpRequest.DONE'
-
+            state = 'XMLHttpRequest.DONE'
+        cls._generate_docs(out, api, tab, callback=callback)
         argnames = [param for param in annotations.keys()]
-        cls._generate_docs(out, api, return_type, tab, callback=callback)
-        out.write(f"{tab}{api.__name__}({', '.join(argnames)}, onreceive, onerror) {{\n".encode(cls.ENCODING))
+        out.write(f"{tab}{api.__name__}({callback}, onerror, {', '.join(argnames)}) {{\n".encode(cls.ENCODING))
+        if method == RestMethod.GET:
+            cls._generate_get_request(out=out, route=route, api=api, tab=tab, content_type=content_type,
+                                      annotations=annotations,
+                                      response_type=response_type,
+                                      state=state,
+                                      callback=callback,
+                                      streamed_response=streamed_resp)
+        else:
+            cls._generate_post_request(out=out, route=route, api=api, tab=tab, content_type=content_type,
+                                      annotations=annotations,
+                                      response_type=response_type,
+                                      state=state,
+                                      callback=callback,
+                                      streamed_response=streamed_resp)
+
+    @classmethod
+    def _generate_post_request(cls, out: IO,
+                               route: str,
+                               api: Coroutine,
+                               tab: str,
+                               content_type: str,
+                               annotations: Dict[str, Type],
+                               response_type: str,
+                               state: str,
+                               callback: str,
+                               streamed_response: bool):
+        argnames = [param for param in annotations.keys()]
         tab += "   "
-        convert = {str: '(',
-                   int: 'parseInt(',
-                   float: 'parseFloat(',
-                   bool: "('true'==",
-                   None: "(null"}.get(return_type) or '('
-        out.write(f"""
-{tab}let request = new XMLHttpRequest();
+        return_codeblock = ""
+        request_streamed = False
+        for name, typ in dict(annotations).items():
+            if hasattr(typ, '_name') and typ._name == 'AsyncGenerator':
+                del annotations[name]
+                request_streamed = True
+                return_codeblock = f"""
+{tab}var onchunkready = function(chunk){{
+{tab}    request.send(chunk);
+{tab}}}
+{tab}return onchunkready;
+"""
+                break
+
+        convert = {str: "",
+                   int: f"parseInt(val)",
+                   float: f"parseFloat(val)",
+                   bool: f"'true'== val",
+                   None: "null"}.get(response_type) or 'request.response.substr(request.seenBytes)'
+        if request_streamed:
+            param_code = f"""
 {tab}let params = "";
 {tab}let c = '?';
-{tab}let map = {{{','.join(['"'+ arg+ '": ' + arg for arg in argnames])}}};
+{tab}let map = {{{','.join(['"' + arg + '": ' + arg for arg in argnames])}}};
 {tab}for (var param of [{", ".join(['"' + a + '"' for a in argnames])}]){{
 {tab}    if (typeof map[param] !== 'undefined'){{
 {tab}        params += c + param + '=' + map[param];
 {tab}        c= ';';
 {tab}    }}
-{tab}}}
+{tab}}}"""
+            query = 'params'
+            body=''
+        else:
+            param_code = ',\n'.join([f"{tab}   \"{argname}\": {argname}" for argname in argnames])
+            param_code = f"""
+{tab}let params = {{
+{param_code}
+{tab}}};"""
+            query = '""'
+            body = 'JSON.stringify(params)'
+
+        if streamed_response and response_type not in [str, None]:
+                convert_codeblock = f"""
+{tab}    // TODO: Can we clean this up a little? 
+{tab}    let vals = request.response.substr(request.seenBytes).trim().split('\\n');
+{tab}    request.seenBytes = 0; 
+{tab}    for (var i = 0; i < vals.length; ++i) {{
+{tab}       let val = vals[i];
+{tab}       let done = (i == vals.length -1) && (request.readyState == XMLHttpRequest.DONE);
+{tab}       if (val !== ''){{
+{tab}          if (buffered != null){{{callback}(buffered, false); buffered = null;}}
+{tab}          buffered = {convert};
+{tab}          if (typeof buffered === 'numbered' && isNaN(buffered)){{
+{tab}             buffered = null;
+{tab}             onerror(-1, "Unable to convert server response '" + val + "' to expected type");
+{tab}             break;
+{tab}          }}
+{tab}       }}
+{tab}    }}
+{tab}    if (buffered !== null && request.readyState == XMLHttpRequest.DONE){{{callback}(buffered, true);}}
+{tab}    request.seenBytes = request.response.length;"""
+        else:
+            convert_codeblock = f"""
+{tab}       var val = request.response.substr(request.seenBytes);
+{tab}       var converted = {convert};
+{tab}       if ((typeof converted == 'number') && isNaN(converted)){{
+{tab}          onerror(-1, "Unable to convert '" + val + "' to expected type");
+{tab}       }}
+{tab}       {callback}(converted, request.readyState == XMLHttpRequest.DONE);
+{tab}      request.seenBytes = request.response.length;"""
+
+        out.write(f"""
+{tab}{param_code}
+{tab}let request = new XMLHttpRequest();
 {tab}request.seenBytes = 0;
-{tab}request.open("POST", this.site + "{route}");
+{tab}request.open("POST", this.site + "{route}" + {query});
 {tab}request.setRequestHeader('Content-Type', "{content_type}");
+{tab}let buffered = null;
 {tab}request.onreadystatechange = function() {{
 {tab}   if (request.readyState == XMLHttpRequest.DONE && (request.status > 299 || request.status < 200)) {{
-{tab}       onerror(request.status, request.statusText);
-{tab}   }} else if(request.readyState >= {condition2}) {{
-{tab}       var newData = request.responseText.substr(xhr.seenBytes);
-{tab}       {callback}({convert}newData), request.readyState == XMLHttpResponse.DONE);
+{tab}       onerror(request.status, request.statusText + ': ' + request.responseText);
+{tab}   }} else if(request.readyState >= {state}) {{
+{tab}      {convert_codeblock}
 {tab}   }}
 {tab}}}
-{tab}request.send(JSON.stringify(params));
+{tab}request.send({body});
+{tab}{return_codeblock}
 """.encode(cls.ENCODING))
         tab = tab[:-3]
         out.write(f"{tab}}}\n".encode(cls.ENCODING))
@@ -174,9 +324,13 @@ class JavascriptGenerator:
     def _generate_get_request(cls, out: IO, route: str, api: Coroutine, tab: str, content_type: str,
                               streamed_resp: bool):
         annotations = dict(api.__annotations__)
-        return_type = annotations.get('return')
-        if 'return' in annotations:
+        response_type = annotations.get('return')
+        if response_type:
             del annotations['return']
+        if hasattr(response_type, '_name') and response_type._name == 'AsyncGenerator':
+            response_type = response_type.__args__[1]
+        elif str(response_type).startswith('typing.Union'):
+            response_type = response_type.__args__[0]
         argnames = [param for param in annotations.keys()]
         if streamed_resp:
             callback = 'onreceive'
@@ -184,14 +338,43 @@ class JavascriptGenerator:
         else:
             callback = 'onsuccess'
             condition2 = 'XMLHttpRequest.DONE'
-        cls._generate_docs(out, api, return_type, tab, callback=callback)
-        out.write(f"{tab}{api.__name__}( onsuccess, onerror, {', '.join(argnames)}) {{\n".encode(cls.ENCODING))
+        cls._generate_docs(out, api, tab, callback=callback)
+        out.write(f"{tab}{api.__name__}( {callback}, onerror, {', '.join(argnames)}) {{\n".encode(cls.ENCODING))
         tab += "   "
-        convert = {str: '(',
-                   int: 'parseInt(',
-                   float: 'parseFloat(',
-                   bool: "('true'==",
-                   None: "(null"}.get(return_type) or '('
+        convert = {str: "",
+                   int: f"parseInt(val)",
+                   float: f"parseFloat(val)",
+                   bool: f"'true'== val",
+                   None: "null"}.get(response_type) or 'request.response.substr(request.seenBytes)'
+
+        if response_type in [str, None]:
+            convert_codeblock = f"""
+{tab}       var converted = {convert};
+{tab}       if ((typeof converted == 'number') && isNaN(converted)){{
+{tab}          onerror(-1, "Unable to convert '" + val + "' to expected type");
+{tab}       }}
+{tab}      {callback}(converted, request.readyState == XMLHttpRequest.DONE); 
+{tab}      request.seenBytes = request.response.length;"""
+        else:
+            convert_codeblock = f"""
+{tab}    let vals = request.response.substr(request.seenBytes).trim().split('\\n');
+{tab}    request.seenBytes = 0; 
+{tab}    for (var i = 0; i < vals.length; ++i) {{
+{tab}       let val = vals[i];
+{tab}       let done = (i == vals.length -1) && (request.readyState == XMLHttpRequest.DONE);
+{tab}       if (val !== ''){{
+{tab}          if (buffered != null){{{callback}(buffered, false); buffered = null;}}
+{tab}          buffered = {convert};
+{tab}          if (typeof buffered === 'numbered' && isNaN(buffered)){{
+{tab}             buffered = null;
+{tab}             onerror(-1, "Unable to convert server response '" + val + "' to expected type");
+{tab}             break;
+{tab}          }}
+{tab}       }}
+{tab}    }}
+{tab}    if (buffered !== null && request.readyState == XMLHttpRequest.DONE){{{callback}(buffered, true);}}
+{tab}    request.seenBytes = request.response.length;"""
+
         out.write(f"""
 {tab}let request = new XMLHttpRequest();
 {tab}let params = "";
@@ -205,11 +388,12 @@ class JavascriptGenerator:
 {tab}}}
 {tab}request.open("GET", this.site + "{route}" + params);
 {tab}request.setRequestHeader('Content-Type', "{content_type}");
+{tab}let buffered = null;
 {tab}request.onreadystatechange = function() {{
 {tab}   if(request.readyState == XMLHttpRequest.DONE && (request.status < 200 || request.status > 299)){{
 {tab}       onerror(request.status, request.statusText + ": " + request.responseText);
 {tab}   }} else if (request.readyState >= {condition2}) {{
-{tab}       {callback}({convert}request.response), request.readyState == XMLHttpRequest.DONE);
+{tab}       {convert_codeblock}
 {tab}   }}
 {tab}}}
 {tab}request.send();

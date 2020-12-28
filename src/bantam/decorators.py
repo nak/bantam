@@ -2,7 +2,7 @@ import asyncio
 import inspect
 import json
 from enum import Enum
-from typing import Type, Any, AsyncGenerator, Coroutine, Callable
+from typing import Type, Any, AsyncGenerator, Callable
 
 from aiohttp.web import Request, Response
 from aiohttp.web_response import StreamResponse
@@ -26,6 +26,9 @@ def _convert_request_param(value: str, typ: Type) -> Any:
     :return: converted instance, of the given type
     :raises: TypeError if value can not be converted/deserialized
     """
+    if hasattr(typ, '_name') and str(typ).startswith('typing.Union'):
+        typ = typ.__args__[0]
+        return _convert_request_param(value, typ)
     if hasattr(typ, 'deserialize'):
         return typ.deserialize(value)
     elif typ == bool:
@@ -97,6 +100,8 @@ async def _invoke_get_api_wrapper(func, content_type: str, request: Request):
                 # iterate to get the one (and hopefully only) yielded element:
                 async for res in result:
                     serialized = _serialize_return_value(res, encoding)
+                    if not isinstance(res, str):
+                        serialized += b'\n'
                     await response.write(serialized)
             except Exception as e:
                 print(str(e))
@@ -160,7 +165,8 @@ async def _invoke_post_api_wrapper(func, content_type: str, request: Request):
                     text=f"No such parameter or missing type hint for param {k} in method {func.__qualname__}")
 
             # convert incoming str values to proper type:
-            kwargs = {k: _convert_request_param(v, annotations[k]) for k, v in json_dict.items()}
+            kwargs = dict(json_dict)
+            # kwargs = {k: _convert_request_param(v, annotations[k]) for k, v in json_dict.items()}
         # call the underlying function:
         result = func(**kwargs)
         if inspect.isasyncgen(result):
@@ -176,6 +182,8 @@ async def _invoke_post_api_wrapper(func, content_type: str, request: Request):
                 # iterate to get the one (and hopefully only) yielded element:
                 async for res in result:
                     serialized = _serialize_return_value(res, encoding)
+                    if not isinstance(res, str):
+                        serialized += b'\n'
                     await response.write(serialized)
             except Exception as e:
                 print(str(e))
@@ -234,13 +242,16 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET):
         name_parts = name.split('.')[-2:]
         route = '/' + '/'.join(name_parts)
 
-        async def invoke(request: Request):
+        async def invoke_get(request: Request):
             return await _invoke_get_api_wrapper(func, content_type=content_type, request=request)
 
+        async def invoke_post(request: Request):
+            return await _invoke_post_api_wrapper(func, content_type=content_type, request=request)
+
         if method == RestMethod.GET:
-            WebApplication.register_route_get(route, invoke, func, content_type)
+            WebApplication.register_route_get(route, invoke_get, func, content_type)
         elif method == RestMethod.POST:
-            WebApplication.register_route_post(route, invoke, func, content_type)
+            WebApplication.register_route_post(route, invoke_post, func, content_type)
         else:
             raise ValueError(f"Method provide was not an instance of MethodEnum")
         return func
