@@ -78,7 +78,7 @@ async def _invoke_get_api_wrapper(func, content_type: str, request: Request):
         # report first param that doesn't match the Python signature:
         for k in [p for p in request.query if p not in annotations]:
             return Response(status=400,
-                text=f"No such parameter or missing type hint for param {k} in method {func.__qualname__}")
+                reason=f"No such parameter or missing type hint for param {k} in method {func.__qualname__}")
 
         # convert incoming str values to proper type:
         kwargs = {k: _convert_request_param(v, annotations[k]) for k, v in request.query.items()}

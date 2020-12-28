@@ -143,19 +143,23 @@ class JavascriptGenerator:
                    float: 'parseFloat(',
                    bool: "('true'==",
                    None: "(null"}.get(return_type) or '('
-        param_values = [f"\"{arg}=\" + {arg}" for arg in argnames]
-        out.write(f"{tab}var params = {{}};\n".encode(cls.ENCODING))
-        for arg in argnames:
-            out.write(f"""{tab}params["{arg}"]={arg};\n""".encode(cls.ENCODING))
         out.write(f"""
 {tab}let request = new XMLHttpRequest();
-{tab}params = "?" + {' + ";" + '.join(param_values)};
+{tab}let params = "";
+{tab}let c = '?';
+{tab}let map = {{{','.join(['"'+ arg+ '": ' + arg for arg in argnames])}}};
+{tab}for (var param of [{", ".join(['"' + a + '"' for a in argnames])}]){{
+{tab}    if (typeof map[param] !== 'undefined'){{
+{tab}        params += c + param + '=' + map[param];
+{tab}        c= ';';
+{tab}    }}
+{tab}}}
 {tab}request.seenBytes = 0;
 {tab}request.open("POST", this.site + "{route}");
 {tab}request.setRequestHeader('Content-Type', "{content_type}");
 {tab}request.onreadystatechange = function() {{
 {tab}   if (request.readyState == XMLHttpRequest.DONE && (request.status > 299 || request.status < 200)) {{
-{tab}       onerror(response.status, response.statusText);
+{tab}       onerror(request.status, request.statusText);
 {tab}   }} else if(request.readyState >= {condition2}) {{
 {tab}       var newData = request.responseText.substr(xhr.seenBytes);
 {tab}       {callback}({convert}newData), request.readyState == XMLHttpResponse.DONE);
@@ -181,24 +185,31 @@ class JavascriptGenerator:
             callback = 'onsuccess'
             condition2 = 'XMLHttpRequest.DONE'
         cls._generate_docs(out, api, return_type, tab, callback=callback)
-        out.write(f"{tab}{api.__name__}({', '.join(argnames)}, onsuccess, onerror) {{\n".encode(cls.ENCODING))
+        out.write(f"{tab}{api.__name__}( onsuccess, onerror, {', '.join(argnames)}) {{\n".encode(cls.ENCODING))
         tab += "   "
         convert = {str: '(',
                    int: 'parseInt(',
                    float: 'parseFloat(',
                    bool: "('true'==",
                    None: "(null"}.get(return_type) or '('
-        param_values = [f"\"{arg}=\" + {arg}" for arg in argnames]
         out.write(f"""
 {tab}let request = new XMLHttpRequest();
-{tab}var params = "?" + {' + ";" + '.join(param_values)};
+{tab}let params = "";
+{tab}let c = '?';
+{tab}let map = {{{','.join(['"'+ arg+ '": ' + arg for arg in argnames])}}};
+{tab}for (var param of [{", ".join(['"' + a + '"' for a in argnames])}]){{
+{tab}    if (typeof map[param] !== 'undefined'){{
+{tab}        params += c + param + '=' + map[param];
+{tab}        c= ';';
+{tab}    }}
+{tab}}}
 {tab}request.open("GET", this.site + "{route}" + params);
-{tab}request.setRequestHeader('Content-Type', {content_type});
+{tab}request.setRequestHeader('Content-Type', "{content_type}");
 {tab}request.onreadystatechange = function() {{
 {tab}   if(request.readyState == XMLHttpRequest.DONE && (request.status < 200 || request.status > 299)){{
-{tab}       onerror(response.status, response.statusText);
+{tab}       onerror(request.status, request.statusText + ": " + request.responseText);
 {tab}   }} else if (request.readyState >= {condition2}) {{
-{tab}       {callback}({convert}request.response), xml.readyState == XMLHttpRequest.DONE);
+{tab}       {callback}({convert}request.response), request.readyState == XMLHttpRequest.DONE);
 {tab}   }}
 {tab}}}
 {tab}request.send();
