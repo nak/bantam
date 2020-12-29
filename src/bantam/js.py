@@ -79,16 +79,8 @@ class JavascriptGenerator:
                 out.write(f"{tab}constructor(site){{this.site = site;}}\n".encode(cls.ENCODING))
                 for method, route_, api in routes:
                     content_type = WebApplication.content_type.get(route_) or 'text/plain'
-                    if inspect.isasyncgenfunction(api):
-                        if method == RestMethod.GET:
-                            cls._generate_get_request(out, route_, api, tab, content_type, streamed_resp=True)
-                        else:
-                            cls._generate_request(out, route_, RestMethod.POST, api, tab, content_type, streamed_resp=True)
-                    else:
-                        if method == RestMethod.GET:
-                            cls._generate_get_request(out, route_, api, tab, content_type, streamed_resp=False)
-                        else:
-                            cls._generate_request(out, route_, RestMethod.POST, api, tab, content_type, streamed_resp=False)
+                    is_streamed = inspect.isasyncgenfunction(api)
+                    cls._generate_request(out, route_, method, api, tab, content_type, streamed_resp=is_streamed)
                 tab = tab[:-3]
                 out.write(f"}};\n".encode(cls.ENCODING))  # for class end
 
@@ -106,7 +98,7 @@ class JavascriptGenerator:
             for line in text.splitlines():
                 new_text += tab + line.strip() + '\n'
             return new_text
-        basic_doc_parts = (prefix(api.__doc__, tab) or "<<No API documentation provided>>").\
+        basic_doc_parts = prefix(api.__doc__ or "<<No API documentation provided>>", tab).\
             replace(':return:', ':returns:').split(':param', maxsplit=1)
         if len(basic_doc_parts) == 1:
             basic_doc = basic_doc_parts[0]
@@ -157,7 +149,6 @@ class JavascriptGenerator:
             elif '@param' in line:
                 remove_line = False
                 params_doc += f"{line}\n"
-
         if return_cb_type_name:
             params_doc += f"{tab}@return {{{{function({return_cb_type_name}) => null}}}} callback to send streamed chunks to server"
         if callback == 'onreceive':
@@ -186,7 +177,7 @@ class JavascriptGenerator:
                           api: Coroutine, tab: str, content_type: str, streamed_resp: bool):
         annotations = dict(api.__annotations__)
         response_type = annotations.get('return')
-        if response_type is None:
+        if 'return' not in annotations:
             response_type = 'string'
         else:
             if hasattr(response_type, '_name') and response_type._name == "AsyncGenerator":
@@ -210,11 +201,11 @@ class JavascriptGenerator:
                                       streamed_response=streamed_resp)
         else:
             cls._generate_post_request(out=out, route=route, api=api, tab=tab, content_type=content_type,
-                                      annotations=annotations,
-                                      response_type=response_type,
-                                      state=state,
-                                      callback=callback,
-                                      streamed_response=streamed_resp)
+                                       annotations=annotations,
+                                       response_type=response_type,
+                                       state=state,
+                                       callback=callback,
+                                       streamed_response=streamed_resp)
 
     @classmethod
     def _generate_post_request(cls, out: IO,
@@ -321,25 +312,17 @@ class JavascriptGenerator:
         out.write(f"{tab}}}\n".encode(cls.ENCODING))
 
     @classmethod
-    def _generate_get_request(cls, out: IO, route: str, api: Coroutine, tab: str, content_type: str,
-                              streamed_resp: bool):
-        annotations = dict(api.__annotations__)
-        response_type = annotations.get('return')
-        if response_type:
-            del annotations['return']
-        if hasattr(response_type, '_name') and response_type._name == 'AsyncGenerator':
-            response_type = response_type.__args__[1]
-        elif str(response_type).startswith('typing.Union'):
-            response_type = response_type.__args__[0]
+    def _generate_get_request(cls, out: IO,
+                               route: str,
+                               api: Coroutine,
+                               tab: str,
+                               content_type: str,
+                               annotations: Dict[str, Type],
+                               response_type: str,
+                               state: str,
+                               callback: str,
+                               streamed_response: bool):
         argnames = [param for param in annotations.keys()]
-        if streamed_resp:
-            callback = 'onreceive'
-            condition2 = 3
-        else:
-            callback = 'onsuccess'
-            condition2 = 'XMLHttpRequest.DONE'
-        cls._generate_docs(out, api, tab, callback=callback)
-        out.write(f"{tab}{api.__name__}( {callback}, onerror, {', '.join(argnames)}) {{\n".encode(cls.ENCODING))
         tab += "   "
         convert = {str: "",
                    int: f"parseInt(val)",
@@ -392,7 +375,7 @@ class JavascriptGenerator:
 {tab}request.onreadystatechange = function() {{
 {tab}   if(request.readyState == XMLHttpRequest.DONE && (request.status < 200 || request.status > 299)){{
 {tab}       onerror(request.status, request.statusText + ": " + request.responseText);
-{tab}   }} else if (request.readyState >= {condition2}) {{
+{tab}   }} else if (request.readyState >= {state}) {{
 {tab}       {convert_codeblock}
 {tab}   }}
 {tab}}}

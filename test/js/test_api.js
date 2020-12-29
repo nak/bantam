@@ -15,12 +15,23 @@ class TestRunner{
         if (typeof expected == 'undefined'){
             elem.innerHTML = test + ": FAILED[" + code + "] " + reason;
             elem.setAttribute('style', 'color:red');
+            this.failed[test] = reason;
         } else if (reason != expected) {
             elem.innerHTML = test + ": FAILED to receive expected error response: '" + reason + "' != '" + expected + ";";
             elem.setAttribute('style', 'color:red');
+            this.failed[test] = reason;
         } else {
             elem.innerHTML = test + ": PASSED"; // got expected error response
-            elem.setAttribute('style', 'color:darkgreen')
+            elem.setAttribute('style', 'color:darkgreen');
+            this.passed[test] = "PASSED";
+        }
+        let passed_count = Object.keys(this.passed).length;
+        let failed_count = Object.keys(this.failed).length
+        console.log("TOTALS: " + passed_count + " : " + failed_count);
+        if (this.test_suite.length = passed_count + failed_count){
+            let api = new bantam.test.test_js.RestAPIExample('http://localhost:8080');
+            api.publish_result(function(a, b){}, function(a,b){}, 
+                               failed_count == 0?"PASSED":JSON.stringify(this.failed));
         }
     }
 
@@ -30,23 +41,34 @@ class TestRunner{
         if (text == expected || typeof expected == 'undefined'){
             elem.innerHTML = test + ": PASSED";
             elem.setAttribute('style', 'color:darkgreen');
+            this.passed[test] = "PASSED";
         }  else {
             elem.innerHTML = test + ": FAILED  response not as expected '" + text + "' != " + expected;
             elem.setAttribute('style', 'color:red');
+            this.failed[test] = reason;
+        }
+        let passed_count = Object.keys(this.passed).length;
+        let failed_count = Object.keys(this.failed).length
+        console.log("TOTALS: " + passed_count + " : " + failed_count);
+        if (this.test_suite.length = passed_count + failed_count){
+            let api = new bantam.test.test_js.RestAPIExample('http://localhost:8080');
+            api.publish_result(function(a, b){}, function(a,b){}, 
+                               failed_count== 0?"PASSED":JSON.stringify(this.failed));
         }
     }
 
     run(){
+        this.test_suite = [this.test_api_basic, this.test_api_basic_optional_param_value,
+            this.test_api_basic_error_not_all_required_params,
+            this.test_api_get_streamed_response, 
+            this.test_api_get_streamed_response_text,
+            this.test_api_post_basic,
+            this.test_api_post_basic_optional_param_value,
+            this.test_api_post_streamed_response,
+            this.test_api_post_streamed_response_text,
+            this.test_api_post_basic_error_not_all_required_params];
         //this will run test in parallel, as the onerror/onsuccess callbacks are invoked asynchrounously
-        for (var test of [this.test_api_basic, this.test_api_basic_optional_param_value,
-                          this.test_api_basic_error_not_all_required_params,
-                          this.test_api_get_streamed_response, 
-                          this.test_api_get_streamed_response_text,
-                          this.test_api_post_basic,
-                          this.test_api_post_basic_optional_param_value,
-                          this.test_api_post_streamed_response,
-                          this.test_api_post_streamed_response_text,
-                          this.test_api_post_basic_error_not_all_required_params]) {
+        for (var test of this.test_suite) {
             this.current_test = test;
             try{
                 this.current_test(test.name);

@@ -1,7 +1,9 @@
 import asyncio
+import webbrowser
 from pathlib import Path
 from typing import AsyncGenerator, Optional
 
+import pytest
 from aiohttp import web
 
 from bantam.decorators import web_api, RestMethod, AsyncLineGenerator
@@ -10,6 +12,8 @@ from bantam.web import WebApplication
 
 
 class RestAPIExample:
+
+    result_queue : Optional[asyncio.Queue] = None
 
     @web_api(content_type='text/plain', method=RestMethod.GET)
     @staticmethod
@@ -115,16 +119,40 @@ class RestAPIExample:
             await asyncio.sleep(0.02)
         yield "DONE"
 
+    @web_api(content_type='text/plain', method=RestMethod.GET)
+    @staticmethod
+    async def publish_result(result: str) -> None:
+        await RestAPIExample.result_queue.put(result)
+
 
 class TestJavascriptGenerator:
 
-    def test_generate_basic(self):
+    @pytest.mark.asyncio
+    async def test_generate_basic(self):
+        RestAPIExample.result_queue = asyncio.Queue()
         root = Path(__file__).parent
         static_path = root.joinpath('js')
         output_path = static_path.joinpath('generated.js')
         with open(output_path, 'bw') as f:
             JavascriptGenerator.generate(f)
-        with open(output_path, 'r') as f:
-            print(f.read())
         app = WebApplication(static_path='js')
-        asyncio.get_event_loop().run_until_complete(web.run_app(app))
+
+        async def launch_browser():
+            await asyncio.sleep(2.0)
+            webbrowser.get().open("http://localhost:8080/static/index.html")
+            result = await RestAPIExample.result_queue.get()
+            await asyncio.sleep(2.0)
+            await app.shutdown()
+            return result
+
+        try:
+            completed, _ = await asyncio.wait([web._run_app(app), launch_browser()], timeout=100, return_when=asyncio.FIRST_COMPLETED)
+            results = [c.result() for c in completed if c is not None]
+        except Exception as e:
+            assert False, f"Exception processing javascript results: {e}"
+
+        if any([isinstance(r, Exception) for r in results]):
+            assert False, "At least one javascript test failed. See browser window for details"
+
+        if results[0] != "PASSED":
+            raise Exception(results[0])

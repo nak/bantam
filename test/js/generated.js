@@ -16,7 +16,7 @@ bantam.test.test_js.RestAPIExample = class {
       @param {{number [float]}} param3
       @param {{string}} param4
       */
-      api_get_basic( onsuccess, onerror, param1, param2, param3, param4) {
+      api_get_basic(onsuccess, onerror, param1, param2, param3, param4) {
 
          let request = new XMLHttpRequest();
          let params = "";
@@ -59,7 +59,7 @@ bantam.test.test_js.RestAPIExample = class {
       
       @return {{function(int) => null}} callback to send streamed chunks to server
       */
-      api_get_stream( onreceive, onerror, param1, param2, param3, param4) {
+      api_get_stream(onreceive, onerror, param1, param2, param3, param4) {
 
          let request = new XMLHttpRequest();
          let params = "";
@@ -113,7 +113,7 @@ bantam.test.test_js.RestAPIExample = class {
       
       @return {{function(str) => null}} callback to send streamed chunks to server
       */
-      api_get_stream_text( onreceive, onerror, param1, param2, param3, param4) {
+      api_get_stream_text(onreceive, onerror, param1, param2, param3, param4) {
 
          let request = new XMLHttpRequest();
          let params = "";
@@ -156,7 +156,7 @@ bantam.test.test_js.RestAPIExample = class {
       
       @return {{function(str) => null}} callback to send streamed chunks to server
       */
-      api_post_stream_text( onreceive, onerror, param1, param2, param3, param4) {
+      api_post_stream_text(onreceive, onerror, param1, param2, param3, param4) {
 
          let request = new XMLHttpRequest();
          let params = "";
@@ -181,6 +181,44 @@ bantam.test.test_js.RestAPIExample = class {
                    onerror(-1, "Unable to convert '" + val + "' to expected type");
                 }
                onreceive(converted, request.readyState == XMLHttpRequest.DONE); 
+               request.seenBytes = request.response.length;
+            }
+         }
+         request.send();
+      }
+
+      /*
+      <<No API documentation provided>>
+      
+      @param {function(<<unrecognized>>) => null} onsuccess callback inoked, passing in response from server on success
+      @param {function(int, str) => null}  onerror  callback upon error, passing in response code and status text
+      
+      */
+      publish_result(onsuccess, onerror, result) {
+
+         let request = new XMLHttpRequest();
+         let params = "";
+         let c = '?';
+         let map = {"result": result};
+         for (var param of ["result"]){
+             if (typeof map[param] !== 'undefined'){
+                 params += c + param + '=' + map[param];
+                 c= ';';
+             }
+         }
+         request.open("GET", this.site + "/RestAPIExample/publish_result" + params);
+         request.setRequestHeader('Content-Type', "text/plain");
+         let buffered = null;
+         request.onreadystatechange = function() {
+            if(request.readyState == XMLHttpRequest.DONE && (request.status < 200 || request.status > 299)){
+                onerror(request.status, request.statusText + ": " + request.responseText);
+            } else if (request.readyState >= XMLHttpRequest.DONE) {
+                
+                var converted = null;
+                if ((typeof converted == 'number') && isNaN(converted)){
+                   onerror(-1, "Unable to convert '" + val + "' to expected type");
+                }
+               onsuccess(converted, request.readyState == XMLHttpRequest.DONE); 
                request.seenBytes = request.response.length;
             }
          }
