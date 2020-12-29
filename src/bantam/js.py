@@ -183,6 +183,8 @@ class JavascriptGenerator:
             if hasattr(response_type, '_name') and response_type._name == "AsyncGenerator":
                 response_type = response_type.__args__[1]
             del annotations['return']
+        if api.__code__.co_argcount != len(annotations):
+            raise Exception(f"Not all arguments of '{api.__module__}.{api.__name__}' have type hints.  This is required for web_api")
         if streamed_resp is True:
             callback = 'onreceive'
             state = 3
