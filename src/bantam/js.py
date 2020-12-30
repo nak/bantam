@@ -1,10 +1,77 @@
+"""
+Bantam provides the ability to auto-generate client-side javascript code to abstract the details of makting
+HTTP requests to the server.  This abstraction implies that the developer never need to know about routes,
+formulating URLs, how to make a POST request, how to stream data over HTTP, etc!
+
+To generate client side code, create a Python source file -- let's name it generator.py --
+and import all of the classes containing @web_api's
+to be generated. Then add the main entry poitn to generate the javascript code, like so:
+
+>>> from bantam.js import JavascriptGenerator
+... from salutations import Greetings
+...
+... if __name__ == '__main__':
+...     with open('salutations.js', 'bw') as output:
+...        JavascriptGenerator.generate(out=output, skip_html=True)
+
+Run the script as so:
+
+.. code-block:: bash
+
+    % python generate.py
+
+With the above Greetings example, the generated javasctipt code will mimic the Python:
+
+.. code-block:: javascript
+    :caption: javascript code auto-generated from Python server's web API
+
+    class bantam {};
+    bantam.salutations = class {};
+    bantam.salutations.Greetings = class {
+          constructor(site){this.site = site;}
+
+          /*
+          Welcome someone
+          The response will be provided as the (first) parameter passed into onsuccess
+
+          @param {function(string) => null} onsuccess callback inoked, passing in response from server on success
+          @param {function(int, str) => null}  onerror  callback upon error, passing in response code and status text
+          @param {{string}} name name of person to greet
+          */
+          welcome(onsuccess, onerror, name) {
+             ...
+          }
+
+           /*
+           Tell someone goodbye by telling them to have a day (of the given type)
+           The response will be provided as the (first) parameter passed into onsuccess
+
+           @param {function(string) => null} onsuccess callback inoked, passing in response from server on success
+           @param {function(int, str) => null}  onerror  callback upon error, passing in response code and status text
+           @param {{string}} type_of_day adjective describing type of day to have
+           */
+          goodbye(onsuccess, onerror, type_of_day) {
+            ...
+          }
+    };
+
+The code maintains the same hiearchy in namespaces as packages in Python, albeit under a global *bantam* namespace.
+This prevents potential namespace collsions.  The signatures of the API mimic those defined in the Pyhon codebase,
+with the noted exception of the onsuccess and onerror callbacks as the first two parameters.
+This is typical of how plain javascript handles asynchronous transations:  rather than returning a value or raising an
+exception, these callbacks are invoked instead.
+
+Through a simple normal declaraton of an API in the Python code, and auto-generation of client code, the developer
+is free to ignore the details of the inner works of routes and HTTP transactions.
+
+
+"""
 import inspect
 import re
 from collections import Coroutine
 from typing import Dict, Tuple, List, IO, Type
 
 from bantam.decorators import RestMethod
-from bantam.web import WebApplication
 
 
 class JavascriptGenerator:
@@ -55,6 +122,7 @@ class JavascriptGenerator:
         :param skip_html: whether to skip entries of content type 'text/html' as these are generally not used in direct
            javascript calls
         """
+        from bantam.web import WebApplication
         namespaces = cls.Namespace()
         for route, api in WebApplication.callables_get.items():
             content_type = WebApplication.content_type.get(route)
@@ -98,8 +166,7 @@ class JavascriptGenerator:
             for line in text.splitlines():
                 new_text += tab + line.strip() + '\n'
             return new_text
-        basic_doc_parts = prefix(api.__doc__ or "<<No API documentation provided>>", tab).\
-            replace(':return:', ':returns:').split(':param', maxsplit=1)
+        basic_doc_parts = prefix(api.__doc__ or "<<No API documentation provided>>", tab).split(':param', maxsplit=1)
         if len(basic_doc_parts) == 1:
             basic_doc = basic_doc_parts[0]
             params_doc = ""
@@ -163,6 +230,7 @@ class JavascriptGenerator:
 """
         docs = f"""\n{tab}/*
 {tab}{basic_doc.strip()}
+{tab}A call will be made to The server and the response will be provided as the (first) parameter passed into {callback}
 {tab}
 {tab}{cb_docs.strip()}
 {tab}{params_doc.strip()}
