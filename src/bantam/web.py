@@ -1,10 +1,10 @@
 """
-Welcome to Bantam, a framework built on top of aiohttp
-for running a web server that a conviene layer of abstraction.
-The framework allows users to define a web API through static methods of classes,
+Welcome to Bantam, a framework for running a web server, built on top of *aiohttp*,
+poviding a convience-layer of abstraction.
+The framework allows users to define a Python web API through static methods of classes,
 and allows auto-generation of corresponding javascript APIs to match.  The developer need not
 be concerned about the details of how to map routes nor to understand the details of HTTP transactions.
-Ths develope need only focus on development of a web API as part of normal code, as explained below.
+Ths developer need only focus on development of a web API as a Python interface.
 
 Getting Started
 ---------------
@@ -71,13 +71,13 @@ The query parameters are translated to the value and type expected by the
 Python API. If the value is not convertible to the proper type, an error code along with reason are returned.
 There are a few other options for parameters and return type that will be  discussed later on streaming.
 
-The methods can also be declared POST.  In this case, parameter values would be sent as part of the payload of the request
-(not query parameters) as a simple JSON dicetionary.
+The methods can also be declared as POST operations.  In this case, parameter values would be sent as part of the
+payload of the request (not query parameters) as a simple JSON dictionary.
 
 .. caution::
 
-    All the the code prevents name collisions, the underlying routes do not, and a route must be unique.  Thus,
-    each pair of class/method declared as a @web_api must be unique, including across differing packages.
+    Although the code prevents name collisions, the underlying (automated) routes do not, and a route must be unique.
+    Thus, each pair of class/method declared as a @web_api must be unique, including across differing modules.
 
 """
 from pathlib import Path
