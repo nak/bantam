@@ -1,6 +1,6 @@
 import inspect
 import re
-from collections import Coroutine
+from typing import Coroutine
 from typing import Dict, Tuple, List, IO, Type
 
 from bantam.decorators import RestMethod
