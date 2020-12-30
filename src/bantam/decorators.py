@@ -2,10 +2,13 @@ import asyncio
 import inspect
 import json
 from enum import Enum
-from typing import Type, Any, AsyncGenerator, Callable
+from typing import Type, Any, AsyncGenerator, Callable, Awaitable
 
 from aiohttp.web import Request, Response
 from aiohttp.web_response import StreamResponse
+
+
+WebApi = Callable[..., Awaitable[Any]]
 
 
 class RestMethod(Enum):
@@ -67,7 +70,14 @@ def _serialize_return_value(value: Any, encoding: str) -> bytes:
         return image
 
 
-async def _invoke_get_api_wrapper(func, content_type: str, request: Request):
+async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Request) -> Response:
+    """
+    Invoke the underlying GET web API from given request
+    :param func:  async function to be called
+    :param content_type: http header content-type
+    :param request: request to be processed
+    :return: http response object
+    """
     try:
         encoding = 'utf-8'
         items = content_type.split(';')
@@ -122,7 +132,14 @@ async def _invoke_get_api_wrapper(func, content_type: str, request: Request):
         return Response(status=500, text=str(e))
 
 
-async def _invoke_post_api_wrapper(func, content_type: str, request: Request):
+async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Request) -> Response:
+    """
+    Invoke the underlying POST web API from given request
+    :param func:  async function to be called
+    :param content_type: http header content-type
+    :param request: request to be processed
+    :return: http response object
+    """
     encoding = 'utf-8'
     items = content_type.split(';')
     for item in items:
@@ -203,7 +220,7 @@ async def _invoke_post_api_wrapper(func, content_type: str, request: Request):
         return Response(status=500, text=str(e))
 
 
-def web_api(content_type: str, method: RestMethod = RestMethod.GET):
+def web_api(content_type: str, method: RestMethod = RestMethod.GET) -> Callable[[WebApi], WebApi]:
     """
     Decorator for class async method to register it as an API with the `WebApplication` class
     Decorated functions should be static class methods with parameters that are convertible from a string
@@ -228,11 +245,10 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET):
     :return: callable decorator
     """
     from .web import WebApplication
-
     if not isinstance(content_type, str):
         raise Exception("@web_api must be provided one str argument which is the content type")
 
-    def wrapper(func):
+    def wrapper(func: WebApi) -> WebApi:
         if not isinstance(func, staticmethod):
             raise ValueError("the @web_api decorator can only be used on static class methods")
         elif not inspect.iscoroutinefunction(func.__func__) and not inspect.isasyncgenfunction(func.__func__):

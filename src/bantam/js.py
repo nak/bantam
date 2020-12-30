@@ -1,10 +1,77 @@
+"""
+Bantam provides the ability to auto-generate client-side javascript code to abstract the details of makting
+HTTP requests to the server.  This abstraction implies that the developer never need to know about routes,
+formulating URLs, how to make a POST request, how to stream data over HTTP, etc!
+
+To generate client side code, create a Python source file -- let's name it generator.py --
+and import all of the classes containing @web_api's
+to be generated. Then add the main entry poitn to generate the javascript code, like so:
+
+>>> from bantam.js import JavascriptGenerator
+... from salutations import Greetings
+...
+... if __name__ == '__main__':
+...     with open('salutations.js', 'bw') as output:
+...        JavascriptGenerator.generate(out=output, skip_html=True)
+
+Run the script as so:
+
+.. code-block:: bash
+
+    % python generate.py
+
+With the above Greetings example, the generated javasctipt code will mimic the Python:
+
+.. code-block:: javascript
+    :caption: javascript code auto-generated from Python server's web API
+
+    class bantam {};
+    bantam.salutations = class {};
+    bantam.salutations.Greetings = class {
+          constructor(site){this.site = site;}
+
+          /*
+          Welcome someone
+          The response will be provided as the (first) parameter passed into onsuccess
+
+          @param {function(string) => null} onsuccess callback inoked, passing in response from server on success
+          @param {function(int, str) => null}  onerror  callback upon error, passing in response code and status text
+          @param {{string}} name name of person to greet
+          */
+          welcome(onsuccess, onerror, name) {
+             ...
+          }
+
+           /*
+           Tell someone goodbye by telling them to have a day (of the given type)
+           The response will be provided as the (first) parameter passed into onsuccess
+
+           @param {function(string) => null} onsuccess callback inoked, passing in response from server on success
+           @param {function(int, str) => null}  onerror  callback upon error, passing in response code and status text
+           @param {{string}} type_of_day adjective describing type of day to have
+           */
+          goodbye(onsuccess, onerror, type_of_day) {
+            ...
+          }
+    };
+
+The code maintains the same hiearchy in namespaces as packages in Python, albeit under a global *bantam* namespace.
+This prevents potential namespace collsions.  The signatures of the API mimic those defined in the Pyhon codebase,
+with the noted exception of the onsuccess and onerror callbacks as the first two parameters.
+This is typical of how plain javascript handles asynchronous transations:  rather than returning a value or raising an
+exception, these callbacks are invoked instead.
+
+Through a simple normal declaraton of an API in the Python code, and auto-generation of client code, the developer
+is free to ignore the details of the inner works of routes and HTTP transactions.
+
+
+"""
 import inspect
 import re
 from typing import Coroutine
 from typing import Dict, Tuple, List, IO, Type
 
 from bantam.decorators import RestMethod
-from bantam.web import WebApplication
 
 
 class JavascriptGenerator:
@@ -55,6 +122,7 @@ class JavascriptGenerator:
         :param skip_html: whether to skip entries of content type 'text/html' as these are generally not used in direct
            javascript calls
         """
+        from bantam.web import WebApplication
         namespaces = cls.Namespace()
         for route, api in WebApplication.callables_get.items():
             content_type = WebApplication.content_type.get(route)
@@ -79,16 +147,8 @@ class JavascriptGenerator:
                 out.write(f"{tab}constructor(site){{this.site = site;}}\n".encode(cls.ENCODING))
                 for method, route_, api in routes:
                     content_type = WebApplication.content_type.get(route_) or 'text/plain'
-                    if inspect.isasyncgenfunction(api):
-                        if method == RestMethod.GET:
-                            cls._generate_get_request(out, route_, api, tab, content_type, streamed_resp=True)
-                        else:
-                            cls._generate_request(out, route_, RestMethod.POST, api, tab, content_type, streamed_resp=True)
-                    else:
-                        if method == RestMethod.GET:
-                            cls._generate_get_request(out, route_, api, tab, content_type, streamed_resp=False)
-                        else:
-                            cls._generate_request(out, route_, RestMethod.POST, api, tab, content_type, streamed_resp=False)
+                    is_streamed = inspect.isasyncgenfunction(api)
+                    cls._generate_request(out, route_, method, api, tab, content_type, streamed_resp=is_streamed)
                 tab = tab[:-3]
                 out.write(f"}};\n".encode(cls.ENCODING))  # for class end
 
@@ -106,8 +166,7 @@ class JavascriptGenerator:
             for line in text.splitlines():
                 new_text += tab + line.strip() + '\n'
             return new_text
-        basic_doc_parts = (prefix(api.__doc__, tab) or "<<No API documentation provided>>").\
-            replace(':return:', ':returns:').split(':param', maxsplit=1)
+        basic_doc_parts = prefix(api.__doc__ or "<<No API documentation provided>>", tab).split(':param', maxsplit=1)
         if len(basic_doc_parts) == 1:
             basic_doc = basic_doc_parts[0]
             params_doc = ""
@@ -157,7 +216,6 @@ class JavascriptGenerator:
             elif '@param' in line:
                 remove_line = False
                 params_doc += f"{line}\n"
-
         if return_cb_type_name:
             params_doc += f"{tab}@return {{{{function({return_cb_type_name}) => null}}}} callback to send streamed chunks to server"
         if callback == 'onreceive':
@@ -172,6 +230,7 @@ class JavascriptGenerator:
 """
         docs = f"""\n{tab}/*
 {tab}{basic_doc.strip()}
+{tab}A call will be made to The server and the response will be provided as the (first) parameter passed into {callback}
 {tab}
 {tab}{cb_docs.strip()}
 {tab}{params_doc.strip()}
@@ -186,12 +245,14 @@ class JavascriptGenerator:
                           api: Coroutine, tab: str, content_type: str, streamed_resp: bool):
         annotations = dict(api.__annotations__)
         response_type = annotations.get('return')
-        if response_type is None:
+        if 'return' not in annotations:
             response_type = 'string'
         else:
             if hasattr(response_type, '_name') and response_type._name == "AsyncGenerator":
                 response_type = response_type.__args__[1]
             del annotations['return']
+        if api.__code__.co_argcount != len(annotations):
+            raise Exception(f"Not all arguments of '{api.__module__}.{api.__name__}' have type hints.  This is required for web_api")
         if streamed_resp is True:
             callback = 'onreceive'
             state = 3
@@ -210,11 +271,11 @@ class JavascriptGenerator:
                                       streamed_response=streamed_resp)
         else:
             cls._generate_post_request(out=out, route=route, api=api, tab=tab, content_type=content_type,
-                                      annotations=annotations,
-                                      response_type=response_type,
-                                      state=state,
-                                      callback=callback,
-                                      streamed_response=streamed_resp)
+                                       annotations=annotations,
+                                       response_type=response_type,
+                                       state=state,
+                                       callback=callback,
+                                       streamed_response=streamed_resp)
 
     @classmethod
     def _generate_post_request(cls, out: IO,
@@ -321,25 +382,17 @@ class JavascriptGenerator:
         out.write(f"{tab}}}\n".encode(cls.ENCODING))
 
     @classmethod
-    def _generate_get_request(cls, out: IO, route: str, api: Coroutine, tab: str, content_type: str,
-                              streamed_resp: bool):
-        annotations = dict(api.__annotations__)
-        response_type = annotations.get('return')
-        if response_type:
-            del annotations['return']
-        if hasattr(response_type, '_name') and response_type._name == 'AsyncGenerator':
-            response_type = response_type.__args__[1]
-        elif str(response_type).startswith('typing.Union'):
-            response_type = response_type.__args__[0]
+    def _generate_get_request(cls, out: IO,
+                               route: str,
+                               api: Coroutine,
+                               tab: str,
+                               content_type: str,
+                               annotations: Dict[str, Type],
+                               response_type: str,
+                               state: str,
+                               callback: str,
+                               streamed_response: bool):
         argnames = [param for param in annotations.keys()]
-        if streamed_resp:
-            callback = 'onreceive'
-            condition2 = 3
-        else:
-            callback = 'onsuccess'
-            condition2 = 'XMLHttpRequest.DONE'
-        cls._generate_docs(out, api, tab, callback=callback)
-        out.write(f"{tab}{api.__name__}( {callback}, onerror, {', '.join(argnames)}) {{\n".encode(cls.ENCODING))
         tab += "   "
         convert = {str: "",
                    int: f"parseInt(val)",
@@ -392,7 +445,7 @@ class JavascriptGenerator:
 {tab}request.onreadystatechange = function() {{
 {tab}   if(request.readyState == XMLHttpRequest.DONE && (request.status < 200 || request.status > 299)){{
 {tab}       onerror(request.status, request.statusText + ": " + request.responseText);
-{tab}   }} else if (request.readyState >= {condition2}) {{
+{tab}   }} else if (request.readyState >= {state}) {{
 {tab}       {convert_codeblock}
 {tab}   }}
 {tab}}}
