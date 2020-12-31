@@ -90,14 +90,28 @@ from aiohttp.web import Application, HostSequence
 from aiohttp.web_routedef import UrlDispatcher
 from aiohttp.web_app import _Middleware
 
-from .decorators import web_api, RestMethod, AsyncChunkIterator, AsyncLineIterator, WebApi
+from .decorators import (
+    AsyncChunkIterator,
+    AsyncLineIterator,
+    PreProcessor,
+    PostProcessor,
+    RestMethod,
+    web_api,
+    WebApi,
+)
 from .js import JavascriptGenerator
 
 _all__ = ['WebApplication', web_api, AsyncChunkIterator, AsyncLineIterator, 'AsyncApi', RestMethod]
 
-AsyncApi = Callable[[Request], Awaitable[StreamResponse]]
+AsyncApi = Callable[['WebApplication', Request], Awaitable[StreamResponse]]
 PathLike = Union[Path, str]
 MAX_CLIENTS = 1024 ** 2
+
+
+def wrap(app, op):
+    async def wrapper(request):
+        return await op(app, request)
+    return wrapper
 
 
 class WebApplication:
@@ -144,12 +158,28 @@ class WebApplication:
         self._web_app = Application(router=router, middlewares=middlewares, handler_args=handler_args,
                                     client_max_size=client_max_size, debug=debug)
         for route, api_get in self.routes_get.items():
-            self._web_app.router.add_get(route, api_get)
+            self._web_app.router.add_get(route, wrap(self, api_get))
         for route, api_post in self.routes_post.items():
-            self._web_app.router.add_post(route, api_post)
+            self._web_app.router.add_post(route, wrap(self, api_post))
         if static_path:
             self._web_app.add_routes([web.static('/static', str(static_path))])
         self._started = False
+        self._preprocessor: Optional[PreProcessor] = None
+        self._postprocessor: Optional[PostProcessor] = None
+
+    def set_preprocessor(self, processor: PreProcessor):
+        self._preprocessor = processor
+
+    @property
+    def preprocessor(self):
+        return self._preprocessor
+
+    def set_postprocessor(self, processor: PostProcessor):
+        self._postprocessor = processor
+
+    @property
+    def postprocessor(self):
+        return self._postprocessor
 
     @staticmethod
     def register_route_get(route: str, async_handler: AsyncApi, async_web_api: WebApi, content_type: str) -> None:

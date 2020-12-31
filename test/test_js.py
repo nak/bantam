@@ -130,9 +130,6 @@ class TestJavascriptGenerator:
         RestAPIExample.result_queue = asyncio.Queue()
         root = Path(__file__).parent
         static_path = root.joinpath('static')
-        # output_path = static_path.joinpath('generated.js')
-        # with open(output_path, 'bw') as f:
-        #    JavascriptGenerator.generate(f)
         app = WebApplication(static_path=static_path, js_bundle_name='generated')
 
         async def launch_browser():

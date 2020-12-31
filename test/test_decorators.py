@@ -1,4 +1,4 @@
-from typing import Any, Type, Dict
+from typing import Any, Type, Dict, AsyncGenerator
 
 import pytest
 from bantam.decorators import _convert_request_param, _invoke_get_api_wrapper, _invoke_post_api_wrapper, \
@@ -31,7 +31,7 @@ class MockStreamResponse:
         pass
 
     async def write(self, content: bytes):
-        self.body += b' ' + content
+        self.body += b' ' + content.replace('\n', '')
 
     async def write_eof(self, *args, **kargs):
         self.body += b'\n'
@@ -128,7 +128,7 @@ class TestDecoratorUtils:
         monkeypatch.setattr(web_response.StreamResponse, 'write', MockStreamResponse.write)
         monkeypatch.setattr(web_response.StreamResponse, 'write_eof', MockStreamResponse.write_eof)
 
-        async def func(param1: int, param2: str) -> str:
+        async def func(param1: int, param2: str) -> AsyncGenerator[None, str]:
             assert param1 == 1
             assert param2 == 'text'
             for blurb in ['Alice', 'Wonderland', 'Rabbit Hole']:

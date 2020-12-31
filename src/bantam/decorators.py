@@ -2,7 +2,7 @@ import asyncio
 import inspect
 import json
 from enum import Enum
-from typing import Type, Any, Callable, Awaitable, AsyncIterator, Union, AsyncGenerator
+from typing import Type, Any, Callable, Awaitable, AsyncIterator, Union, AsyncGenerator, Optional, Dict
 
 from aiohttp.web import Request, Response
 from aiohttp.web_response import StreamResponse
@@ -18,6 +18,8 @@ class RestMethod(Enum):
 
 AsyncChunkIterator = Callable[[int], Awaitable[AsyncGenerator[None, bytes]]]
 AsyncLineIterator = AsyncGenerator[None, str]
+PreProcessor = Callable[[Request], Union[None, Dict[str, Any]]]
+PostProcessor = Callable[[Union[Response, StreamResponse]], Union[Response, StreamResponse]]
 
 
 def _convert_request_param(value: str, typ: Type) -> Any:
@@ -70,7 +72,8 @@ def _serialize_return_value(value: Any, encoding: str) -> bytes:
         return image
 
 
-async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Request) -> Union[Response, StreamResponse]:
+async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Request, **addl_args: Any)\
+        -> Union[Response, StreamResponse]:
     """
     Invoke the underlying GET web API from given request
     :param func:  async function to be called
@@ -94,10 +97,12 @@ async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Requ
         # report first param that doesn't match the Python signature:
         for k in [p for p in request.query if p not in annotations]:
             return Response(status=400,
-                reason=f"No such parameter or missing type hint for param {k} in method {func.__qualname__}")
+                text=f"No such parameter or missing type hint for param {k} in method {func.__qualname__}")
 
         # convert incoming str values to proper type:
         kwargs = {k: _convert_request_param(v, annotations[k]) for k, v in request.query.items()}
+        if addl_args:
+            kwargs.update(addl_args)
         # call the underlying function:
         result = func(**kwargs)
         if inspect.isasyncgen(result):
@@ -134,7 +139,7 @@ async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Requ
         return Response(status=500, text=str(e))
 
 
-async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Request) -> Response:
+async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Request, **addl_args: Any) -> Response:
     """
     Invoke the underlying POST web API from given request
     :param func:  async function to be called
@@ -187,6 +192,8 @@ async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Req
             kwargs = dict(json_dict)
             # kwargs = {k: _convert_request_param(v, annotations[k]) for k, v in json_dict.items()}
         # call the underlying function:
+        if addl_args:
+            kwargs.update(addl_args)
         result = func(**kwargs)
         if inspect.isasyncgen(result):
             #################
@@ -223,7 +230,9 @@ async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Req
         return Response(status=500, text=str(e))
 
 
-def web_api(content_type: str, method: RestMethod = RestMethod.GET) -> Callable[[WebApi], WebApi]:
+def web_api(content_type: str, method: RestMethod = RestMethod.GET,
+            preprocess: Optional[PreProcessor] = None,
+            postprocess: Optional[PostProcessor] = None) -> Callable[[WebApi], WebApi]:
     """
     Decorator for class async method to register it as an API with the `WebApplication` class
     Decorated functions should be static class methods with parameters that are convertible from a string
@@ -261,11 +270,23 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET) -> Callable[
         name_parts = name.split('.')[-2:]
         route = '/' + '/'.join(name_parts)
 
-        async def invoke_get(request: Request):
-            return await _invoke_get_api_wrapper(func, content_type=content_type, request=request)
+        async def invoke_get(app: WebApplication, request: Request):
+            nonlocal preprocess, postprocess
+            preprocess = preprocess or app.preprocessor
+            addl_args = (preprocess(request) or {}) if preprocess else {}
+            response = await _invoke_get_api_wrapper(func, content_type=content_type, request=request, **addl_args)
+            postprocess = postprocess or app.postprocessor
+            updated_response = postprocess(response) if postprocess else response
+            return updated_response
 
-        async def invoke_post(request: Request):
-            return await _invoke_post_api_wrapper(func, content_type=content_type, request=request)
+        async def invoke_post(app: WebApplication, request: Request):
+            nonlocal preprocess, postprocess
+            preprocess = preprocess or app.preprocessor
+            addl_args = (preprocess(request) or {}) if preprocess else {}
+            response = await _invoke_post_api_wrapper(func, content_type=content_type, request=request, **addl_args)
+            postprocess = postprocess or app.postprocessor
+            updated_response = postprocess(response) if postprocess else response
+            return updated_response
 
         if method == RestMethod.GET:
             WebApplication.register_route_get(route, invoke_get, func, content_type)
