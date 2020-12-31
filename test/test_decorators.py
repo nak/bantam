@@ -1,7 +1,8 @@
-from typing import Any, Type, AsyncGenerator, Dict
+from typing import Any, Type, Dict
 
 import pytest
-from bantam.decorators import _convert_request_param, _invoke_get_api_wrapper, _invoke_post_api_wrapper, AsyncChunkIterator
+from bantam.decorators import _convert_request_param, _invoke_get_api_wrapper, _invoke_post_api_wrapper, \
+    AsyncChunkIterator, AsyncLineIterator
 
 
 class Deserialiazlbe:
@@ -23,7 +24,7 @@ class MockStreamResponse:
         self.body = b''
         assert status == 200
         assert reason == "OK"
-        assert headers.get('Content-Type') == 'text/plain'
+        assert headers.get('Content-Type') in ['text/plain', 'text-streamed; charset=x-user-defined']
         self._status = status
 
     async def prepare(self, request):
@@ -92,6 +93,9 @@ class MockRequestPostStream:
         self.can_read_body = True
         self.content = self.StreamReader(param1)
         self.query = kwargs
+
+    async def read(self):
+        return str(self.query).encode('utf-8').replace(b'\'', b'"')
 
 
 class TestDecoratorUtils:
@@ -166,7 +170,7 @@ class TestDecoratorUtils:
     async def test__invoke_post_api_wrapper_stream(self):
         param_value = "I am the very\n model of a modern\n major general".encode('utf-8')
 
-        async def func(param1: AsyncGenerator[None, bytes]) -> str:
+        async def func(param1: AsyncLineIterator) -> str:
             all = b""
             async for line in param1:
                 all += line

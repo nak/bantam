@@ -133,6 +133,7 @@ class TestRunner{
         let self = this;
         let api = new bantam.test.test_js.RestAPIExample('http://localhost:8080');
         let count = 0
+        let error = false
         let onreceive = function(text, is_done){
             let split = text.trim().split('\n');
             for (var line of split){
@@ -142,15 +143,17 @@ class TestRunner{
 
                 if (count == 10 && line != 'DONE'){
                      self.onerror(testname, -1, "Unexpected response: '" + line + "' != 'DONE'");
+                     error = true;
                      break;
                 }
-                if(count < 10 && line !== 'COUNT: ' + count){
-                    self.onerror(testname, -1, "Unexpected response: '" + line + "' != 'COUNT: " + count + "'");
+                if(count < 10 && line !== 'GET COUNT: ' + count){
+                    self.onerror(testname, -1, "Unexpected response: '" + line + "' != 'GET COUNT: " + count + "'");
+                    error = true;
                     break;
                 }
                 ++count;
             }
-            if(is_done){
+            if(is_done && !error){
                 self.onsuccess(testname);
             }
         }
@@ -206,7 +209,8 @@ class TestRunner{
     test_api_post_streamed_response_text(testname){
         let self = this;
         let api = new bantam.test.test_js.RestAPIExample('http://localhost:8080');
-        let count = 0
+        let count = 0;
+        let error = false;
         let onreceive = function(text, is_done){
             let split = text.trim().split('\n');
             for (var line of split){
@@ -215,15 +219,17 @@ class TestRunner{
                 }
                 if (count == 10 && line != 'DONE'){
                      self.onerror(testname, -1, "Unexpected response: '" + line + "' != 'DONE'");
+                     error = true;
                      break;
                 }
                 if(count < 10 && line !== 'COUNT: ' + count){
                     self.onerror(testname, -1, "Unexpected response: '" + line + "' != 'COUNT: " + count + "'");
+                    error = true;
                     break;
                 }
                 ++count;
             }
-            if(is_done){
+            if(is_done && !error){
                 self.onsuccess(testname);
             }
         }

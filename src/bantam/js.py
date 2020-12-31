@@ -416,16 +416,14 @@ class JavascriptGenerator:
         elif streamed_response and response_type == str:
             convert_codeblock = f"""
 {tab}    // TODO: Can we clean this up a little? 
-{tab}    let chunk = request.response.substr(request.seenBytes).trim();
-{tab}    let vals = chunk.split('\\n');
-{tab}    for (var i = 0; i < vals.length; ++i) {{
+{tab}    let chunk = request.response.substr(request.seenBytes).trim(); 
+{tab}    let vals = chunk.length == 0?[]:chunk.split('\\n');
+{tab}    if (buffered !== null){{{callback}(buffered, request.readyState == XMLHttpRequest.DONE); buffered = null; }}
+{tab}    for (var i = 0; i < vals.length-1 ; ++i) {{
 {tab}       let val = vals[i];
-{tab}       let done = (i == vals.length -1) && (request.readyState == XMLHttpRequest.DONE);
-{tab}       if (request.response.substr(request.seenBytes).length > 0){{
-{tab}          if (buffered != null){{{callback}(buffered, false); buffered = null;}}
-{tab}          buffered = {convert};
-{tab}       }}
+{tab}       {callback}(val, false);
 {tab}    }}
+{tab}    if (vals.length > 0){{buffered = vals[vals.length-1];}}
 {tab}    if (buffered !== null && request.readyState == XMLHttpRequest.DONE){{{callback}(buffered, true);}}
 {tab}    request.seenBytes = request.response.length;"""
         else:

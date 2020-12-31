@@ -2,7 +2,7 @@ import asyncio
 import inspect
 import json
 from enum import Enum
-from typing import Type, Any, Callable, Awaitable, AsyncIterator
+from typing import Type, Any, Callable, Awaitable, AsyncIterator, Union, AsyncGenerator
 
 from aiohttp.web import Request, Response
 from aiohttp.web_response import StreamResponse
@@ -16,8 +16,8 @@ class RestMethod(Enum):
     POST = 'POST'
 
 
-AsyncChunkIterator = Callable[[int], AsyncIterator[bytes]]
-AsyncLineIterator = AsyncIterator[bytes]
+AsyncChunkIterator = Callable[[int], Awaitable[AsyncGenerator[None, bytes]]]
+AsyncLineIterator = AsyncGenerator[None, str]
 
 
 def _convert_request_param(value: str, typ: Type) -> Any:
@@ -70,7 +70,7 @@ def _serialize_return_value(value: Any, encoding: str) -> bytes:
         return image
 
 
-async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Request) -> Response:
+async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Request) -> Union[Response, StreamResponse]:
     """
     Invoke the underlying GET web API from given request
     :param func:  async function to be called
@@ -86,6 +86,9 @@ async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Requ
             if item.startswith('charset='):
                 encoding = item.replace('charset=', '')
         annotations = dict(func.__annotations__)
+        async_annotations = [a for a in annotations.items() if a[1] in (bytes, AsyncChunkIterator, AsyncLineIterator)]
+        if async_annotations:
+            raise TypeError("Cannot specify a parameter to be streamed for GET requests, you must use POST")
         if 'return' in annotations:
             del annotations['return']
         # report first param that doesn't match the Python signature:
@@ -103,7 +106,6 @@ async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Requ
             #################
             # underlying function has yielded a result rather than turning
             # process the yielded value and allow execution to resume from yielding task
-            async_q = asyncio.Queue()
             content_type = "text-streamed; charset=x-user-defined"
             response = StreamResponse(status=200, reason='OK', headers={'Content-Type': content_type})
             await response.prepare(request)
@@ -111,13 +113,11 @@ async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Requ
                 # iterate to get the one (and hopefully only) yielded element:
                 async for res in result:
                     serialized = _serialize_return_value(res, encoding)
-                    if not isinstance(res, str):
+                    if not isinstance(res, bytes):
                         serialized += b'\n'
-                    #await response.write(serialized)
-                    await response.write_eof()
+                    await response.write(serialized)
             except Exception as e:
                 print(str(e))
-                await async_q.put(None)
             await response.write_eof()
             return response
         else:
@@ -202,7 +202,7 @@ async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Req
                 # iterate to get the one (and hopefully only) yielded element:
                 async for res in result:
                     serialized = _serialize_return_value(res, encoding)
-                    if not isinstance(res, str):
+                    if not isinstance(res, bytes):
                         serialized += b'\n'
                     await response.write(serialized)
             except Exception as e:

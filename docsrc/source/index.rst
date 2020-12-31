@@ -159,14 +159,14 @@ You can also make requests that stream (upload) data to the server.  Here again,
 types for parameters that specify a parameter provides an (async) iterator for lopping over and sending data chunk
 by chunk:
 
-* *bantam.web.AsyncLineGIterator*: specifies that the iterator will send *str* data to the server line by line (with a return
-  character added at end of each line)
+* *bantam.web.AsyncLineGIterator*: specifies that the client will send *str* data to the server line by line (without
+  any return character present in the line)
 * *bantam.web.AsyncChunkIterator*: specifies that the iterator will send *bytes* of data to the server
 
 .. caution::
    At most one parameter may be specified as an iterator type
 
-Here is what a web API method would look like that captures uploaded data to a file and reports progress
+Here is what a web API method would look like that captures uploaded byts of data to a file and reports progress
 back to the client:
 
 .. code-block:: python
@@ -177,16 +177,34 @@ back to the client:
         @staticmethod
         async def receive_streamed_data(size: int, byte_data: AsyncChunkGenerator) -> AsyncGenerator[None, float]
             bytes_received: int = 0
+            packet_size = 100 # bytes
             with open('some_file_path', 'bw') as f:
-                async for data in byte_data:
+                async for data in byte_data(packet_size):
                     f.write(byte_data)
                     bytes_received += len(byte_data)
                     progress = bytes_received*100/size
                     yield progress
 
 
-Note that when a streaming parameter is specified, all others will be sent as query parameters even when the request is
-POST.  On the client side, the signature of the API will look similar, with the *onsuccess* (*onreceive* if the
+As a side note, when a streaming parameter is specified, all others will be sent as query parameters even when the request is
+POST.  Note that for chunk iterators, the parameter byte_data will be a callable that takes a single parameter,
+which is the max size of packet to be read each chunk.  The line iterator will be a simple iterator, not a callable.
+That is for a line itertor the Python code would look like:
+
+.. code-block:: python
+
+    ...
+    class Uploader:
+        @web_api(content_type='text/html')
+        @staticmethod
+        async def receive_streamed_data(size: int, line_by_line: AsyncLineGenerator) -> AsyncGenerator[None, float]
+            ...
+            with open('some_file_path', 'bw') as f:
+                async for data in line_by_line:  #<====  NOT a function call as in AsyncChunkIterator
+                   ...
+
+
+On the client side, the signature of the API will look similar, with the *onsuccess* (*onreceive* if the
 response is also streaming) and *onerror* callbacks act the same.  The differences are that:
 
 #. the parameter that is the AsyncLine[Chunk]Iterator will not be present in the signature

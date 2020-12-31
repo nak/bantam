@@ -4,10 +4,8 @@ from pathlib import Path
 from typing import AsyncGenerator, Optional
 
 import pytest
-from aiohttp import web
 
 from bantam.decorators import web_api, RestMethod, AsyncLineIterator
-from bantam.js import JavascriptGenerator
 from bantam.web import WebApplication
 
 
@@ -55,7 +53,7 @@ class RestAPIExample:
         :return: stream of int
         """
         for index in range(10):
-            yield f"COUNT: {index}\n"
+            yield f"GET COUNT: {index}"
             await asyncio.sleep(0.02)
         yield "DONE"
 
@@ -115,7 +113,7 @@ class RestAPIExample:
         :return: stream of int
         """
         for index in range(10):
-            yield f"COUNT: {index}\n"
+            yield f"COUNT: {index}"
             await asyncio.sleep(0.02)
         yield "DONE"
 
