@@ -258,6 +258,7 @@ class JavascriptGenerator:
         if streamed_resp is True:
             callback = 'onreceive'
             state = 3
+            content_type = 'text/streamed; charset=x-user-defined'
         else:
             callback = 'onsuccess'
             state = 'XMLHttpRequest.DONE'
@@ -393,11 +394,10 @@ class JavascriptGenerator:
                    float: f"parseFloat(val)",
                    bool: f"'true'== val",
                    None: "null"}.get(response_type) or 'request.response.substr(request.seenBytes)'
-        if streamed_response and response_type not in [str, None]:
+        if streamed_response and response_type not in [bytes, str, None]:
             convert_codeblock = f"""
 {tab}    // TODO: Can we clean this up a little? 
 {tab}    let vals = request.response.substr(request.seenBytes).trim().split('\\n');
-{tab}    request.seenBytes = 0; 
 {tab}    for (var i = 0; i < vals.length; ++i) {{
 {tab}       let val = vals[i];
 {tab}       let done = (i == vals.length -1) && (request.readyState == XMLHttpRequest.DONE);
@@ -409,6 +409,21 @@ class JavascriptGenerator:
 {tab}             onerror(-1, "Unable to convert server response '" + val + "' to expected type");
 {tab}             break;
 {tab}          }}
+{tab}       }}
+{tab}    }}
+{tab}    if (buffered !== null && request.readyState == XMLHttpRequest.DONE){{{callback}(buffered, true);}}
+{tab}    request.seenBytes = request.response.length;"""
+        elif streamed_response and response_type == str:
+            convert_codeblock = f"""
+{tab}    // TODO: Can we clean this up a little? 
+{tab}    let chunk = request.response.substr(request.seenBytes).trim();
+{tab}    let vals = chunk.split('\\n');
+{tab}    for (var i = 0; i < vals.length; ++i) {{
+{tab}       let val = vals[i];
+{tab}       let done = (i == vals.length -1) && (request.readyState == XMLHttpRequest.DONE);
+{tab}       if (request.response.substr(request.seenBytes).length > 0){{
+{tab}          if (buffered != null){{{callback}(buffered, false); buffered = null;}}
+{tab}          buffered = {convert};
 {tab}       }}
 {tab}    }}
 {tab}    if (buffered !== null && request.readyState == XMLHttpRequest.DONE){{{callback}(buffered, true);}}

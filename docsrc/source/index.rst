@@ -72,3 +72,145 @@ declared as an Optional to any the types declared there. Provided a default valu
 Streamed Responses
 ------------------
 
+Responses can be streamed back to the client.  To do so, the underlying Python server call must be written as
+an *AsyncGenerator*, returning a type *AsyncGenerator[None, <int, float, bool, str, or bytes>]*.   (Thus, ammending
+the rule of allowed return values above).  Consider this example of a PoetryReader class:
+
+.. code-block:: python
+    :caption: Example of server code to stream a poem back to the client
+
+    import asyncio
+    import os
+
+    from bantam.decorators import RestMethod
+    from bantam.web import WebApplication, web_api
+    from typing import AsyncGenerator
+
+    class PoetryReader:
+        POEM = """
+        Mary had a little lamb...
+        Its fleece was white as snow...
+        Everywhere that Mary went...
+        Her lamb was sure to go...
+        """
+
+        @web_api(content_type='text/streamed', method=RestMethod.POST)
+        @staticmethod
+        async def read_poem() -> AsyncGenerator[None, str]:
+            for line in PoetryReader.POEM.strip().splitlines():
+                yield line
+                await asyncio.sleep(2)  # for dramatic effect
+            yield "THE END"
+            await asyncio.sleep(2)
+
+    if __name__ == '__main__':
+        app = WebApplication(static_path=os.path.dirname(__file__), js_bundle_name='poetry_reader')
+        asyncio.get_event_loop().run_until_complete(app.start())  # default to localhost HTTP on port 8080
+
+
+.. caution::
+    The method must be declared as POST to work consistently across different machines/web browsers
+
+
+The javascript generated for such an API is the same, with the exception that the *onsuccess* callback will be
+named *onreceive* and will be called with two parameters.  The first is the "chunk" that is read and the second
+is a boolean indicating whether it is the final one or not.  The "chunks" are determine by the type yielded by
+the generator:
+
+* for numeric or *bool* types: each number yielded will invoke a single callback to *onreceive*.  But be aware that multiple
+     values can be sent at a time and that the generated javascript code will handle the logic to split them up.
+     This is particularly true when there is no or short sleep periods between yields.
+* for *str* type: *onreceive* will be called for each line received, guaranteeing whole lines are provided
+* for *bytes* type: *cnreceive* will be called for each chunk of bytes received, regardless of size
+
+Here is a bit of HTML to implement the client-side:
+
+.. code-block:: html
+   :caption: HTML containing client-side code for handling streaming responses
+
+    <html>
+    <head>
+        <script src="/static/js/poetry_reader.js" ></script>
+    </head>
+    <body>
+    <div id='poem'></div>
+    <script>
+        document.addEventListener('DOMContentLoaded', function(event) {
+
+            let reader = new bantam.__main__.PoetryReader("http://localhost:8080");
+            let html = ""
+            let onreceive = function(line, is_done){
+                 html += "<p>" + line + "</p><br/>";
+                 document.getElementById('poem').innerHTML = html;
+            }
+            reader.read_poem(onreceive, function(code, reason){
+                alert("UNEXPECTED ERROR OCCURRED: " + code + " : " + reason);
+            });
+        });
+    </script>
+    </body>
+    </html>
+
+Loading the page http://localhost:8080/static/index.html will execute the code.
+
+Streaming Requests
+==================
+You can also make requests that stream (upload) data to the server.  Here again, we add two more (final) allowable
+types for parameters that specify a parameter provides an (async) iterator for lopping over and sending data chunk
+by chunk:
+
+* *bantam.web.AsyncLineGIterator*: specifies that the iterator will send *str* data to the server line by line (with a return
+  character added at end of each line)
+* *bantam.web.AsyncChunkIterator*: specifies that the iterator will send *bytes* of data to the server
+
+.. caution::
+   At most one parameter may be specified as an iterator type
+
+Here is what a web API method would look like that captures uploaded data to a file and reports progress
+back to the client:
+
+.. code-block:: python
+   :caption: Example code for Python web API method that streams data
+
+    class Uploader:
+        @web_api(content_type='text/html')
+        @staticmethod
+        async def receive_streamed_data(size: int, byte_data: AsyncChunkGenerator) -> AsyncGenerator[None, float]
+            bytes_received: int = 0
+            with open('some_file_path', 'bw') as f:
+                async for data in byte_data:
+                    f.write(byte_data)
+                    bytes_received += len(byte_data)
+                    progress = bytes_received*100/size
+                    yield progress
+
+
+Note that when a streaming parameter is specified, all others will be sent as query parameters even when the request is
+POST.  On the client side, the signature of the API will look similar, with the *onsuccess* (*onreceive* if the
+response is also streaming) and *onerror* callbacks act the same.  The differences are that:
+
+#. the parameter that is the AsyncLine[Chunk]Iterator will not be present in the signature
+#. insted, the javascript API call will return a function to be called by the client to send each chunk of data (ad
+   the first and only parameter of the function)
+
+An example of uploading a file using the above api (assuming the Uploader class belongs to the module *uploads*):
+
+.. code-block:: javascript
+
+     ...
+     let onreceive = function(progress, is_done){
+        ...
+     }
+     let onerror = function(code, reason){
+        ...
+     }
+     let uploader = bantam.uploads.Uploader(site_url)
+     let size_of_upload = 1024*1024;  // bytes
+     let send_byte_data = uploader.receive_streamed_data(onreceive, onerror, size_of_upload)
+     const reader = new FileReader();
+     reader.addEventListener('load', (event) => {
+         send_byte_data(event.target.result);
+     });
+     reader.readAsText(file); // assumng file is a file object created prior to this code
+
+

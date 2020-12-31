@@ -90,10 +90,10 @@ from aiohttp.web import Application, HostSequence
 from aiohttp.web_routedef import UrlDispatcher
 from aiohttp.web_app import _Middleware
 
-from .decorators import web_api, RestMethod, AsyncChunkGenerator, AsyncLineGenerator, WebApi
+from .decorators import web_api, RestMethod, AsyncChunkIterator, AsyncLineIterator, WebApi
 from .js import JavascriptGenerator
 
-_all__ = ['WebApplication', web_api, AsyncChunkGenerator, AsyncLineGenerator, 'AsyncApi', RestMethod]
+_all__ = ['WebApplication', web_api, AsyncChunkIterator, AsyncLineIterator, 'AsyncApi', RestMethod]
 
 AsyncApi = Callable[[Request], Awaitable[StreamResponse]]
 PathLike = Union[Path, str]
@@ -139,7 +139,7 @@ class WebApplication:
             js_path = static_path.joinpath('js')
             if not js_path.exists():
                 js_path.mkdir(parents=True)
-            with open(js_path.joinpath(js_path.joinpath(js_bundle_name + ".js")), 'bw') as out:
+            with open(js_path.joinpath(js_bundle_name + ".js"), 'bw') as out:
                 JavascriptGenerator.generate(out=out, skip_html=False)
         self._web_app = Application(router=router, middlewares=middlewares, handler_args=handler_args,
                                     client_max_size=client_max_size, debug=debug)

@@ -2,7 +2,7 @@ import asyncio
 import inspect
 import json
 from enum import Enum
-from typing import Type, Any, AsyncGenerator, Callable, Awaitable
+from typing import Type, Any, Callable, Awaitable, AsyncIterator
 
 from aiohttp.web import Request, Response
 from aiohttp.web_response import StreamResponse
@@ -16,8 +16,8 @@ class RestMethod(Enum):
     POST = 'POST'
 
 
-AsyncChunkGenerator = Callable[[int], AsyncGenerator[None, bytes]]
-AsyncLineGenerator = AsyncGenerator[None, bytes]
+AsyncChunkIterator = Callable[[int], AsyncIterator[bytes]]
+AsyncLineIterator = AsyncIterator[bytes]
 
 
 def _convert_request_param(value: str, typ: Type) -> Any:
@@ -104,6 +104,7 @@ async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Requ
             # underlying function has yielded a result rather than turning
             # process the yielded value and allow execution to resume from yielding task
             async_q = asyncio.Queue()
+            content_type = "text-streamed; charset=x-user-defined"
             response = StreamResponse(status=200, reason='OK', headers={'Content-Type': content_type})
             await response.prepare(request)
             try:
@@ -112,7 +113,8 @@ async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Requ
                     serialized = _serialize_return_value(res, encoding)
                     if not isinstance(res, str):
                         serialized += b'\n'
-                    await response.write(serialized)
+                    #await response.write(serialized)
+                    await response.write_eof()
             except Exception as e:
                 print(str(e))
                 await async_q.put(None)
@@ -153,20 +155,20 @@ async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Req
         del annotations['return']
     try:
         kwargs = None
-        async_annotations = [a for a in annotations.items() if a[1] in (bytes, AsyncChunkGenerator, AsyncLineGenerator)]
+        async_annotations = [a for a in annotations.items() if a[1] in (bytes, AsyncChunkIterator, AsyncLineIterator)]
         if async_annotations:
             if not len(async_annotations) == 1:
                 raise ValueError("At most one parameter of holding onf of the types: bytes, AsyncChunkGenerator or AsynLineGenerator is allowed")
             key, typ = async_annotations[0]
             if typ == bytes:
                 kwargs = {key: await request.read()}
-            elif typ == AsyncLineGenerator:
+            elif typ == AsyncLineIterator:
                 async def iterator():
                     reader = request.content
                     while not reader.is_eof:
                         yield await reader.readline()
                 kwargs = {key: iterator()}
-            elif typ == AsyncChunkGenerator:
+            elif typ == AsyncChunkIterator:
                 async def iterator(packet_size: int):
                     reader = request.content
                     while not reader.is_eof:
@@ -193,6 +195,7 @@ async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Req
             # underlying function has yielded a result rather than turning
             # process the yielded value and allow execution to resume from yielding task
             async_q = asyncio.Queue()
+            content_type = "text/streamed; charset=x-user-defined"
             response = StreamResponse(status=200, reason='OK', headers={'Content-Type': content_type})
             await response.prepare(request)
             try:

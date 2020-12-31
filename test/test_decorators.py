@@ -1,7 +1,7 @@
 from typing import Any, Type, AsyncGenerator, Dict
 
 import pytest
-from bantam.decorators import _convert_request_param, _invoke_get_api_wrapper, _invoke_post_api_wrapper, AsyncChunkGenerator
+from bantam.decorators import _convert_request_param, _invoke_get_api_wrapper, _invoke_post_api_wrapper, AsyncChunkIterator
 
 
 class Deserialiazlbe:
@@ -182,7 +182,7 @@ class TestDecoratorUtils:
     async def test__invoke_post_api_wrapper_chunked(self):
         param_value = "I am the very\n model of a modern\n major general".encode('utf-8')
 
-        async def func(param1: AsyncChunkGenerator) -> str:
+        async def func(param1: AsyncChunkIterator) -> str:
             all = b""
             async for line in param1(10):
                 all += line

@@ -1,0 +1,22 @@
+<html>
+<head>
+    <script src="/static/js/poetry_reader.js" ></script>
+</head>
+<body>
+<div id='poem'></div>
+<script>
+    document.addEventListener('DOMContentLoaded', function(event) {
+
+        let reader = new bantam.__main__.PoetryReader("http://localhost:8080");
+        let html = ""
+        let onreceive = function(line, is_done){
+             html += "<p>" + line + "</p><br/>";
+             document.getElementById('poem').innerHTML = html;
+        }
+        reader.read_poem(onreceive, function(code, reason){
+            alert("UNEXPECTED ERROR OCCURRED: " + code + " : " + reason);
+        });
+    });
+</script>
+</body>
+</html>

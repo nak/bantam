@@ -6,7 +6,7 @@ from typing import AsyncGenerator, Optional
 import pytest
 from aiohttp import web
 
-from bantam.decorators import web_api, RestMethod, AsyncLineGenerator
+from bantam.decorators import web_api, RestMethod, AsyncLineIterator
 from bantam.js import JavascriptGenerator
 from bantam.web import WebApplication
 
@@ -45,7 +45,7 @@ class RestAPIExample:
 
     @web_api(content_type='text/json', method=RestMethod.GET)
     @staticmethod
-    async def api_get_stream_text(param1: int, param2: bool, param3: float, param4: Optional[str] = None) -> AsyncGenerator[None, str]:
+    async def api_get_stream_text(param1: int, param2: bool, param3: float, param4: Optional[str] = None) -> AsyncGenerator[None, bytes]:
         """
         Some sort of doc
         :param param1:
@@ -89,7 +89,7 @@ class RestAPIExample:
 
     @web_api(content_type='text/plain', method=RestMethod.POST)
     @staticmethod
-    async def api_post_streamed_req_and_resp(param1: int, param2: bool, param3: float, param4: AsyncLineGenerator)\
+    async def api_post_streamed_req_and_resp(param1: int, param2: bool, param3: float, param4: AsyncLineIterator)\
             -> AsyncGenerator[None, str]:
         """
         Some sort of doc
@@ -103,7 +103,7 @@ class RestAPIExample:
             yield f"ECHO: {line}"
             await asyncio.sleep(0.02)
 
-    @web_api(content_type='text/json', method=RestMethod.GET)
+    @web_api(content_type='text/json', method=RestMethod.POST)
     @staticmethod
     async def api_post_stream_text(param1: int, param2: bool, param3: float, param4: Optional[str] = None) -> AsyncGenerator[None, str]:
         """
