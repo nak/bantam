@@ -121,25 +121,6 @@ class TestDecoratorUtils:
         assert response.text == "RESULT"
 
     @pytest.mark.asyncio
-    async def test__invoke_get_api_wrapper_streamed_response(self, monkeypatch):
-        import aiohttp.web_response as web_response
-        monkeypatch.setattr(web_response.StreamResponse, '__init__',  MockStreamResponse.__init__)
-        monkeypatch.setattr(web_response.StreamResponse, 'prepare', MockStreamResponse.prepare)
-        monkeypatch.setattr(web_response.StreamResponse, 'write', MockStreamResponse.write)
-        monkeypatch.setattr(web_response.StreamResponse, 'write_eof', MockStreamResponse.write_eof)
-
-        async def func(param1: int, param2: str) -> AsyncGenerator[None, str]:
-            assert param1 == 1
-            assert param2 == 'text'
-            for blurb in ['Alice', 'Wonderland', 'Rabbit Hole']:
-                yield blurb
-
-        request = MockRequestGet(param1=1, param2='text')
-        response = await _invoke_get_api_wrapper(func=func, content_type='text/plain', request=request)
-        assert response.status == 200
-        assert response.body == b" Alice Wonderland Rabbit Hole\n"
-
-    @pytest.mark.asyncio
     async def test__invoke_post_api_wrapper(self):
         async def func(param1: int, param2: str) -> str:
             assert param1 == 1

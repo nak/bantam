@@ -9,6 +9,29 @@ class TestRunner{
         this.failed = {}
     }
 
+    publish_results(){
+        let passed_count = Object.keys(this.passed).length;
+        let failed_count = Object.keys(this.failed).length
+        let self = this;
+        function sleep(ms) {
+          return new Promise(resolve => setTimeout(resolve, ms));
+        }
+        async function close(){
+            let api = new bantam.test.test_js.RestAPIExample('http://localhost:8080');
+            api.publish_result(function(a, b){}, function(a,b){},
+                               failed_count==0?"PASSED":JSON.stringify(self.failed));
+            await sleep(5000);
+            window.close();
+        }
+        if (this.test_suite.length == passed_count + failed_count){
+            var elem = document.createElement('p');
+            document.body.insertBefore(elem, document.getElementById('div1'));
+            elem.innerHTML = failed_count == 0?"ALL TESTS PASSED":"COMPLETE WITH AT LEAST ONE FAILURE"; // got expected error response
+            elem.setAttribute('style', 'color:' + failed_count==0?'darkgreen':'red');
+            close();
+        }
+    }
+
     onerror(test, code, reason, expected) {
         var elem = document.createElement('p');
         document.body.insertBefore(elem, document.getElementById('div1'));
@@ -25,14 +48,7 @@ class TestRunner{
             elem.setAttribute('style', 'color:darkgreen');
             this.passed[test] = "PASSED";
         }
-        let passed_count = Object.keys(this.passed).length;
-        let failed_count = Object.keys(this.failed).length
-        console.log("TOTALS: " + passed_count + " : " + failed_count);
-        if (this.test_suite.length = passed_count + failed_count){
-            let api = new bantam.test.test_js.RestAPIExample('http://localhost:8080');
-            api.publish_result(function(a, b){}, function(a,b){}, 
-                               failed_count == 0?"PASSED":JSON.stringify(this.failed));
-        }
+        this.publish_results();
     }
 
     onsuccess(test, text, expected) {
@@ -47,14 +63,7 @@ class TestRunner{
             elem.setAttribute('style', 'color:red');
             this.failed[test] = reason;
         }
-        let passed_count = Object.keys(this.passed).length;
-        let failed_count = Object.keys(this.failed).length
-        console.log("TOTALS: " + passed_count + " : " + failed_count);
-        if (this.test_suite.length = passed_count + failed_count){
-            let api = new bantam.test.test_js.RestAPIExample('http://localhost:8080');
-            api.publish_result(function(a, b){}, function(a,b){}, 
-                               failed_count== 0?"PASSED":JSON.stringify(this.failed));
-        }
+        this.publish_results();
     }
 
     run(){

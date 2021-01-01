@@ -1,9 +1,16 @@
 import asyncio
+import json
+import os
+import subprocess
+import sys
 import webbrowser
+from contextlib import suppress
 from pathlib import Path
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional, Dict, Any
 
 import pytest
+from aiohttp.web_request import Request
+from aiohttp.web_response import Response
 
 from bantam.decorators import web_api, RestMethod, AsyncLineIterator
 from bantam.web import WebApplication
@@ -127,17 +134,45 @@ class TestJavascriptGenerator:
 
     @pytest.mark.asyncio
     async def test_generate_basic(self):
+        def assert_preprocessor(request: Request) -> Dict[str, Any]:
+            assert isinstance(request, Request), "Failed to get valid response on pre-processing"
+            return {}
+
+        def assert_postprocessor(response: Response) -> None:
+            assert isinstance(response, Response), "Failed to get valid response for post-processing"
+
         RestAPIExample.result_queue = asyncio.Queue()
         root = Path(__file__).parent
         static_path = root.joinpath('static')
         app = WebApplication(static_path=static_path, js_bundle_name='generated')
+        app.set_preprocessor(assert_preprocessor)
+        app.set_postprocessor(assert_postprocessor)
 
         async def launch_browser():
             await asyncio.sleep(2.0)
-            webbrowser.get().open("http://localhost:8080/static/index.html")
+            browser = None
+            try:
+                browser = webbrowser.get("chrome")
+            except:
+                with suppress(Exception):
+                    browser = webbrowser.get("google-chrome")
+            flags = ["--new-window"] if browser else []
+            if not browser:
+                with suppress(Exception):
+                    browser = webbrowser.get("firefox")
+                    flags = ["-new-instance"]
+            if not browser:
+                os.write(sys.stderr.fileno(),
+                         b"UNABLE TO GET BROWSER SUPPORINT HEADLESS CONFIGURATION. DEFAULTING TO NON_HEADLESSS")
+                browser = webbrowser.get()
+            cmdline = [browser.name] + flags + ["http://localhost:8080/static/index.html"]
+            process = subprocess.Popen(cmdline)
             result = await RestAPIExample.result_queue.get()
             await asyncio.sleep(2.0)
             await app.shutdown()
+            if process.returncode != None:
+                raise Exception("Browser died!")
+            process.kill()
             return result
 
         try:
@@ -148,6 +183,6 @@ class TestJavascriptGenerator:
 
         if any([isinstance(r, Exception) for r in results]):
             assert False, "At least one javascript test failed. See browser window for details"
-
-        if results[0] != "PASSED":
-            raise Exception(results[0])
+        assert results[0] == "PASSED", \
+            "FAILED JAVSSCRIPT TESTS FOUND: \n" + \
+            "\n".join([f"{test}: {msg}" for test, msg in json.loads(results[0]).items()])

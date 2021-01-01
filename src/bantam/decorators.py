@@ -272,21 +272,39 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
 
         async def invoke_get(app: WebApplication, request: Request):
             nonlocal preprocess, postprocess
-            preprocess = preprocess or app.preprocessor
-            addl_args = (preprocess(request) or {}) if preprocess else {}
-            response = await _invoke_get_api_wrapper(func, content_type=content_type, request=request, **addl_args)
-            postprocess = postprocess or app.postprocessor
-            updated_response = postprocess(response) if postprocess else response
-            return updated_response
+            try:
+                preprocess = preprocess or app.preprocessor
+                try:
+                    addl_args = (preprocess(request) or {}) if preprocess else {}
+                except Exception as e:
+                    return Response(status=400, text=f"Error in preprocessing request: {e}")
+                response = await _invoke_get_api_wrapper(func, content_type=content_type, request=request, **addl_args)
+                try:
+                    postprocess = postprocess or app.postprocessor
+                    postprocess(response) if postprocess else response
+                except Exception as e:
+                    return Response(status=400, text=f"Error in post-processing of response: {e}")
+                return response
+            except Exception as e:
+                return Response(status=500, text=f"Server error: {e}")
 
         async def invoke_post(app: WebApplication, request: Request):
             nonlocal preprocess, postprocess
-            preprocess = preprocess or app.preprocessor
-            addl_args = (preprocess(request) or {}) if preprocess else {}
-            response = await _invoke_post_api_wrapper(func, content_type=content_type, request=request, **addl_args)
-            postprocess = postprocess or app.postprocessor
-            updated_response = postprocess(response) if postprocess else response
-            return updated_response
+            try:
+                preprocess = preprocess or app.preprocessor
+                try:
+                    addl_args = (preprocess(request) or {}) if preprocess else {}
+                except Exception as e:
+                    return Response(status=400, text=f"Error in preprocessing request: {e}")
+                response = await _invoke_post_api_wrapper(func, content_type=content_type, request=request, **addl_args)
+                postprocess = postprocess or app.postprocessor
+                try:
+                    postprocess(response) if postprocess else response
+                except Exception as e:
+                    return Response(status=400, text=f"Error in post-processing of response: {e}")
+                return response
+            except Exception as e:
+                return Response(status=500, text=f"Server error: {e}")
 
         if method == RestMethod.GET:
             WebApplication.register_route_get(route, invoke_get, func, content_type)
