@@ -270,7 +270,7 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
         name_parts = name.split('.')[-2:]
         route = '/' + '/'.join(name_parts)
 
-        async def invoke_get(app: WebApplication, request: Request):
+        async def invoke(app: WebApplication, request: Request):
             nonlocal preprocess, postprocess
             try:
                 preprocess = preprocess or app.preprocessor
@@ -278,7 +278,14 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
                     addl_args = (preprocess(request) or {}) if preprocess else {}
                 except Exception as e:
                     return Response(status=400, text=f"Error in preprocessing request: {e}")
-                response = await _invoke_get_api_wrapper(func, content_type=content_type, request=request, **addl_args)
+                if method == RestMethod.GET:
+                    response = await _invoke_get_api_wrapper(func, content_type=content_type, request=request,
+                                                             **addl_args)
+                elif method == RestMethod.POST:
+                    response = await _invoke_post_api_wrapper(func, content_type=content_type, request=request,
+                                                              **addl_args)
+                else:
+                    raise ValueError(f"Unknown method {method} in @web-api")
                 try:
                     postprocess = postprocess or app.postprocessor
                     postprocess(response) if postprocess else response
@@ -288,29 +295,11 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
             except Exception as e:
                 return Response(status=500, text=f"Server error: {e}")
 
-        async def invoke_post(app: WebApplication, request: Request):
-            nonlocal preprocess, postprocess
-            try:
-                preprocess = preprocess or app.preprocessor
-                try:
-                    addl_args = (preprocess(request) or {}) if preprocess else {}
-                except Exception as e:
-                    return Response(status=400, text=f"Error in preprocessing request: {e}")
-                response = await _invoke_post_api_wrapper(func, content_type=content_type, request=request, **addl_args)
-                postprocess = postprocess or app.postprocessor
-                try:
-                    postprocess(response) if postprocess else response
-                except Exception as e:
-                    return Response(status=400, text=f"Error in post-processing of response: {e}")
-                return response
-            except Exception as e:
-                return Response(status=500, text=f"Server error: {e}")
-
         if method == RestMethod.GET:
-            WebApplication.register_route_get(route, invoke_get, func, content_type)
+            WebApplication.register_route_get(route, invoke, func, content_type)
         elif method == RestMethod.POST:
-            WebApplication.register_route_post(route, invoke_post, func, content_type)
+            WebApplication.register_route_post(route, invoke, func, content_type)
         else:
-            raise ValueError(f"Method provide was not an instance of MethodEnum")
+            raise ValueError(f"Unknown method {method} in @web-api")
         return func
     return wrapper
