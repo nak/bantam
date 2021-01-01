@@ -232,3 +232,35 @@ An example of uploading a file using the above api (assuming the Uploader class 
      reader.readAsText(file); // assumng file is a file object created prior to this code
 
 
+Pre-Processing Requests & Post-Processing Responses
+===================================================
+
+You can pre-process requests before a call is made to the underlying Python web API. Likewise, you can modify
+responses returned from a Python web API call before it is sent to the client.  There are two means to do so.
+One is at the application level, by calling *set_preprocessor* and *set_postprocessor* accordingly:
+
+.. code-block:: python
+
+   def preprocessor(request: Request) -> Union[None, Dict[str, Any]]:
+      return {'additional_arg': "value"}  # adds an additional argument to the web API call; can also return None
+
+   def postprocessor(response: Response) -> None:
+      response.body += b"\n Additional line of output"
+
+   ...
+
+   app = WebApplication(...)
+   app.set_preprocessing(preprocessor)
+   app.set_postprocessing(postprocessor)
+
+
+Alternatively, you can do this for each individual web API method through optional *preprocess* and *postprocess*
+arguments.  Using the above define *prerprocessor* and *postprocessor* functions, this would look like:
+
+.. code-block:: python
+
+   ...
+   @web_api(content_type='text/plain', preprocess=preprocessor, postprocess=postprocessor)
+
+
+
