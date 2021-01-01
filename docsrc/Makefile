@@ -17,7 +17,7 @@ help:
 
 github:
 	        @make html
-		@cp -a _build/html/. ../../pytest_mproc_docs
+		@cp -a build/html/. ../../pytest_mproc_docs
 
 
 # Catch-all target: route all unknown targets to Sphinx using the new
