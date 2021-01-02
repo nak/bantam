@@ -1,6 +1,7 @@
 import asyncio
 import inspect
 import json
+import sys
 from enum import Enum
 from typing import Type, Any, Callable, Awaitable, AsyncIterator, Union, AsyncGenerator, Optional, Dict
 
@@ -81,6 +82,8 @@ async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Requ
     :param request: request to be processed
     :return: http response object
     """
+    from .web import WebApplication
+    WebApplication._context[sys._getframe(0)] = request
     try:
         encoding = 'utf-8'
         items = content_type.split(';')
@@ -132,11 +135,12 @@ async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Requ
             result = _serialize_return_value(await result, encoding)
             return Response(status=200, body=result if result is not None else b"Success",
                             content_type=content_type)
-
     except TypeError as e:
         return Response(status=400, text=f"Improperly formatted query: {str(e)}")
     except Exception as e:
         return Response(status=500, text=str(e))
+    finally:
+        del WebApplication._context[sys._getframe(0)]
 
 
 async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Request, **addl_args: Any) -> Response:
@@ -147,6 +151,8 @@ async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Req
     :param request: request to be processed
     :return: http response object
     """
+    from .web import  WebApplication
+    WebApplication._context[sys._getframe(0)] = request
     encoding = 'utf-8'
     items = content_type.split(';')
     for item in items:
@@ -194,8 +200,8 @@ async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Req
         # call the underlying function:
         if addl_args:
             kwargs.update(addl_args)
-        result = func(**kwargs)
-        if inspect.isasyncgen(result):
+        awaitable = func(**kwargs)
+        if inspect.isasyncgen(awaitable):
             #################
             #  streamed response through async generator:
             #################
@@ -207,7 +213,7 @@ async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Req
             await response.prepare(request)
             try:
                 # iterate to get the one (and hopefully only) yielded element:
-                async for res in result:
+                async for res in awaitable:
                     serialized = _serialize_return_value(res, encoding)
                     if not isinstance(res, bytes):
                         serialized += b'\n'
@@ -220,7 +226,8 @@ async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Req
             #################
             #  regular response
             #################
-            result = _serialize_return_value(await result, encoding)
+            from .web import WebApplication
+            result = _serialize_return_value(await awaitable, encoding)
             return Response(status=200, body=result if result is not None else b"Success",
                             content_type=content_type)
 
@@ -228,6 +235,8 @@ async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Req
         return Response(status=400, text=f"Improperly formatted query: {str(e)}")
     except Exception as e:
         return Response(status=500, text=str(e))
+    finally:
+        del WebApplication._context[sys._getframe(0)]
 
 
 def web_api(content_type: str, method: RestMethod = RestMethod.GET,

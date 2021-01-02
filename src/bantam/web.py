@@ -80,6 +80,7 @@ payload of the request (not query parameters) as a simple JSON dictionary.
     Thus, each pair of class/method declared as a @web_api must be unique, including across differing modules.
 
 """
+import sys
 from pathlib import Path
 from ssl import SSLContext
 from typing import Optional, Union, Dict, Callable, Iterable, Mapping, Any, Awaitable
@@ -123,6 +124,8 @@ class WebApplication:
     :@param js_bundle_name: the name of the javascript file, **without** exetnesion, where the client-side API
        will be generated, if provided
     """
+    _context: Dict[Awaitable, Request] = {}
+
     class DuplicateRoute(Exception):
         """
         Raised if an attempt is made to register a web_api function under an existing route
@@ -258,3 +261,16 @@ class WebApplication:
         if self._started:
             await self._web_app.shutdown()
             self._started = False
+
+    @classmethod
+    def get_context(cls):
+        i = 1
+        frame = sys._getframe(i)
+        try:
+            # with debuggers, stack is polluted, so....
+            while frame not in WebApplication._context:
+                i += 1
+                frame = sys._getframe(i)
+        except IndexError:
+            return None
+        return WebApplication._context[frame].headers
