@@ -61,6 +61,10 @@ The client interface is then available through:
 Through a simple normal declaration of an API in the Python code, and auto-generation of client code, the developer
 is free to ignore the details of the inner works of routes and HTTP transactions.
 
+Furthermore, the web api that is registered is also directly callable as a Python function.  This engenders the
+concept of "library-as-a-service", where the code can act directly as a library or as a distributed Rest-ful
+service transparently to the caller.
+
 
 Optional Parameters
 -------------------
@@ -232,8 +236,8 @@ An example of uploading a file using the above api (assuming the Uploader class 
      reader.readAsText(file); // assumng file is a file object created prior to this code
 
 
-Pre-Processing Requests & Post-Processing Responses
-===================================================
+Pre/Post-Processing Request/Responses
+=====================================
 
 You can pre-process requests before a call is made to the underlying Python web API. Likewise, you can modify
 responses returned from a Python web API call before it is sent to the client.  There are two means to do so.
@@ -264,3 +268,12 @@ arguments.  Using the above define *prerprocessor* and *postprocessor* functions
 
 
 
+Getting Request Context
+=======================
+In the implementation of a web api, you can get the context of the rquest (i.e., the request headers).  Such
+information may be useful if chaining one Rest call to other backend Rest calls in a service hiearchy, and passing
+any contextual information around the originating request down through such a chain of calls.  Context is available
+through the *WebApplication.get_context()* call which returns a dictionary of the reques header keys and values.
+
+Be aware that accessing context may limit the use of your code as a "library-as-a-service".  If a direct call is made
+to a web api without any request, the *get_context()* call will return None, a case you should consider handling.
