@@ -92,11 +92,11 @@ async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Requ
             if item.startswith('charset='):
                 encoding = item.replace('charset=', '')
         annotations = dict(func.__annotations__)
-        if async_annotations:
-            raise TypeError("Cannot specify a parameter to be streamed for GET requests, you must use POST")
         if 'return' in annotations:
             del annotations['return']
         async_annotations = [a for a in annotations.items() if a[1] in (bytes, AsyncChunkIterator, AsyncLineIterator)]
+        if async_annotations:
+            raise TypeError("Cannot specify a parameter to be streamed for GET requests, you must use POST")
         # report first param that doesn't match the Python signature:
         for k in [p for p in request.query if p not in annotations]:
             return Response(status=400,
