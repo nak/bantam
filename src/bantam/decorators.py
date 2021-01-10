@@ -270,7 +270,7 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
         raise Exception("@web_api must be provided one str argument which is the content type")
 
     def wrapper(func: WebApi) -> WebApi:
-        if not isinstance(func, (staticmethod, classmethod)):
+        if not isinstance(func, staticmethod):
             raise ValueError("the @web_api decorator can only be used on static class methods")
         elif not inspect.iscoroutinefunction(func.__func__) and not inspect.isasyncgenfunction(func.__func__):
             raise ValueError("the @web_api decorator can only be applied to methods that are coroutines (async)")
