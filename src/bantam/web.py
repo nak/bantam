@@ -59,7 +59,7 @@ To explain this code, the *@web_api* decorator declares a method that is mapped 
 by the class name, in this case *Greetings*, and the method name. Thus, the "welcome" method above, as a member of
 *Greetings* class, is mapped to the route '/Greetings/welcome".  There are some rules about methods declared as *@web_api*:
 
-#. They must be @staticmethod's.
+#. They must be @staticmethod's or @classmethod's.
 #. They must provide all type hints for parameters and return value,
 #. They must have parameters and return values of basic types (str, float, int bool) or a class that has both a serialize
    and deserialize method to convert to/from bytes (Actually there's a little more to this, explained later)
