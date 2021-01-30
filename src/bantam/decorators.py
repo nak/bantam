@@ -8,6 +8,7 @@ from typing import Type, Any, Callable, Awaitable, AsyncIterator, Union, AsyncGe
 from aiohttp.web import Request, Response
 from aiohttp.web_response import StreamResponse
 
+from bantam.xforms import deserialize, serialize
 
 WebApi = Callable[..., Awaitable[Any]]
 
@@ -35,8 +36,8 @@ def _convert_request_param(value: str, typ: Type) -> Any:
     if hasattr(typ, '_name') and str(typ).startswith('typing.Union'):
         typ = typ.__args__[0]
         return _convert_request_param(value, typ)
-    if hasattr(typ, 'deserialize'):
-        return typ.deserialize(value)
+    if hasattr(typ, '__dataclass_fields__'):
+        return deserialize(value.encode('utf-8'), typ)
     elif typ == bool:
         if value.lower() == 'true':
             return True
@@ -61,15 +62,11 @@ def _serialize_return_value(value: Any, encoding: str) -> bytes:
     """
     if isinstance(value, (str, bool, int, float)):
         return str(value).encode(encoding)
-    elif hasattr(value, 'serialize'):
+    elif hasattr(value, '__dataclass_fields__'):
         try:
-            image = value.serialize()
+            image = serialize(value)
         except Exception as e:
             raise TypeError(f"Unable to serialize Python response to string-seralized web response: {e}")
-        if not isinstance(image, (str, bytes)):
-            raise TypeError(f"Call to serialize {value} of type {type(value)} did not return 'str' as expected")
-        if isinstance(image, str):
-            return image.encode(encoding)
         return image
 
 
@@ -92,11 +89,11 @@ async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Requ
             if item.startswith('charset='):
                 encoding = item.replace('charset=', '')
         annotations = dict(func.__annotations__)
+        # async_annotations = [a for a in annotations.items() if a[1] in (bytes, AsyncChunkIterator, AsyncLineIterator)]
+        # if async_annotations:
+        #     raise TypeError("Cannot specify a parameter to be streamed for GET requests, you must use POST")
         if 'return' in annotations:
             del annotations['return']
-        async_annotations = [a for a in annotations.items() if a[1] in (bytes, AsyncChunkIterator, AsyncLineIterator)]
-        if async_annotations:
-            raise TypeError("Cannot specify a parameter to be streamed for GET requests, you must use POST")
         # report first param that doesn't match the Python signature:
         for k in [p for p in request.query if p not in annotations]:
             return Response(status=400,
@@ -165,7 +162,7 @@ async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Req
     if 'return' in annotations:
         del annotations['return']
     try:
-        kwargs = None
+        kwargs = {}
         async_annotations = [a for a in annotations.items() if a[1] in (bytes, AsyncChunkIterator, AsyncLineIterator)]
         if async_annotations:
             if not len(async_annotations) == 1:
@@ -176,15 +173,23 @@ async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Req
             elif typ == AsyncLineIterator:
                 async def iterator():
                     reader = request.content
-                    while not reader.is_eof:
-                        yield await reader.readline()
+                    chunk = True
+                    while not reader.is_eof() and chunk:
+                        chunk = await reader.readline()
+                        yield chunk
+                    last = await reader.readline()
+                    if last:
+                        yield last
                 kwargs = {key: iterator()}
             elif typ == AsyncChunkIterator:
                 async def iterator(packet_size: int):
                     reader = request.content
-                    while not reader.is_eof:
-                        yield await reader.read(packet_size)
+                    chunk = True
+                    while not reader.is_eof() and chunk:
+                        chunk = await reader.read(packet_size)
+                        yield chunk
                 kwargs = {key: iterator}
+            del annotations[key]
             kwargs.update({k: _convert_request_param(v, annotations[k]) for k, v in request.query.items()})
         else:
             # treat payload as json string:
@@ -195,8 +200,7 @@ async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Req
                     text=f"No such parameter or missing type hint for param {k} in method {func.__qualname__}")
 
             # convert incoming str values to proper type:
-            kwargs = dict(json_dict)
-            # kwargs = {k: _convert_request_param(v, annotations[k]) for k, v in json_dict.items()}
+            kwargs.update(dict(json_dict))
         # call the underlying function:
         if addl_args:
             kwargs.update(addl_args)

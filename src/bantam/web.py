@@ -61,8 +61,7 @@ by the class name, in this case *Greetings*, and the method name. Thus, the "wel
 
 #. They must be @staticmethod's.
 #. They must provide all type hints for parameters and return value,
-#. They must have parameters and return values of basic types (str, float, int bool) or a class that has both a serialize
-   and deserialize method to convert to/from bytes (Actually there's a little more to this, explained later)
+#. They must have parameters and return values of basic types (str, float, int bool) or a @dataclass class
 
 The query parameters provided in the full URL are mapped to the parameters in the Python method.  For example,
 the query parameter name=Box in the first uRL above maps to the *name* parameter of the *Greetings.welcome* method,
@@ -100,6 +99,7 @@ from .decorators import (
     web_api,
     WebApi,
 )
+from .js_async import JavascriptGeneratorAsync
 from .js import JavascriptGenerator
 
 _all__ = ['WebApplication', web_api, AsyncChunkIterator, AsyncLineIterator, 'AsyncApi', RestMethod]
@@ -146,6 +146,7 @@ class WebApplication:
                  middlewares: Iterable[_Middleware] = (),
                  handler_args: Optional[Mapping[str, Any]] = None,
                  client_max_size: int = MAX_CLIENTS,
+                 using_async: bool = True,
                  debug: Any = ..., ) -> None:  # mypy doesn't support ellipsis
         if static_path is not None and not Path(static_path).exists():
             raise ValueError(f"Provided static path, {static_path} does not exist")
@@ -157,7 +158,10 @@ class WebApplication:
             if not js_path.exists():
                 js_path.mkdir(parents=True)
             with open(js_path.joinpath(js_bundle_name + ".js"), 'bw') as out:
-                JavascriptGenerator.generate(out=out, skip_html=False)
+                if using_async:
+                    JavascriptGeneratorAsync.generate(out=out, skip_html=False)
+                else:
+                    JavascriptGenerator.generate(out=out, skip_html=False)
         self._web_app = Application(router=router, middlewares=middlewares, handler_args=handler_args,
                                     client_max_size=client_max_size, debug=debug)
         for route, api_get in self.routes_get.items():

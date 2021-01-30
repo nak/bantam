@@ -25,10 +25,10 @@ class RestAPIExample:
     async def api_get_basic(param1: int, param2: bool, param3: float, param4: str = "text") -> str:
         """
         Some sort of doc
-        :param param1:
-        :param param2:
-        :param param3:
-        :param param4:
+        :param param1: docs for first param
+        :param param2: docs for 2nd param
+        :param param3: docs for param #3
+        :param param4: docs for last param
         :return: String for test_api_basic
         """
         return "Response to test_api_basic"
@@ -144,16 +144,15 @@ class TestJavascriptGenerator:
         RestAPIExample.result_queue = asyncio.Queue()
         root = Path(__file__).parent
         static_path = root.joinpath('static')
-        app = WebApplication(static_path=static_path, js_bundle_name='generated', using_async=False)
+        app = WebApplication(static_path=static_path, js_bundle_name='generated', using_async=True)
         app.set_preprocessor(assert_preprocessor)
         app.set_postprocessor(assert_postprocessor)
 
         async def launch_browser():
             await asyncio.sleep(2.0)
-            browser = None
             try:
                 browser = webbrowser.get("chrome")
-            except:
+            except Exception:
                 with suppress(Exception):
                     browser = webbrowser.get("google-chrome")
             flags = ["--new-window"] if browser else []
@@ -165,7 +164,7 @@ class TestJavascriptGenerator:
                 os.write(sys.stderr.fileno(),
                          b"UNABLE TO GET BROWSER SUPPORINT HEADLESS CONFIGURATION. DEFAULTING TO NON_HEADLESSS")
                 browser = webbrowser.get()
-            cmdline = [browser.name] + flags + ["http://localhost:8080/static/index.html"]
+            cmdline = [browser.name] + flags + ["http://localhost:8080/static/index_async.html"]
             process = subprocess.Popen(cmdline)
             result = await RestAPIExample.result_queue.get()
             await asyncio.sleep(2.0)
