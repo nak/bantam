@@ -146,7 +146,6 @@ class JavascriptGenerator:
             for class_name, routes in ns.classes.items():
                 out.write(f"\n{parent_name}.{class_name} = class {{\n".encode(cls.ENCODING))
                 tab += "   "
-                out.write(f"{tab}constructor(site){{this.site = site;}}\n".encode(cls.ENCODING))
                 for method, route_, api in routes:
                     content_type = WebApplication.content_type.get(route_) or 'text/plain'
                     is_streamed = inspect.isasyncgenfunction(api)
@@ -264,7 +263,7 @@ class JavascriptGenerator:
             state = 'XMLHttpRequest.DONE'
         cls._generate_docs(out, api, tab, callback=callback)
         argnames = [param for param in annotations.keys()]
-        out.write(f"{tab}{api.__name__}({callback}, onerror, {', '.join(argnames)}) {{\n".encode(cls.ENCODING))
+        out.write(f"{tab}static {api.__name__}({callback}, onerror, {', '.join(argnames)}) {{\n".encode(cls.ENCODING))
         if method == RestMethod.GET:
             cls._generate_get_request(out=out, route=route, tab=tab, content_type=content_type,
                                       annotations=annotations,
@@ -332,7 +331,7 @@ class JavascriptGenerator:
 {tab}{param_code}
 {tab}let request = new XMLHttpRequest();
 {tab}request.seenBytes = 0;
-{tab}request.open("POST", this.site + "{route}" + {query});
+{tab}request.open("POST", "{route}" + {query});
 {tab}request.setRequestHeader('Content-Type', "{content_type}");
 {tab}let buffered = null;
 {tab}request.onreadystatechange = function() {{
@@ -372,7 +371,7 @@ class JavascriptGenerator:
 {tab}        c= ';';
 {tab}    }}
 {tab}}}
-{tab}request.open("GET", this.site + "{route}" + params);
+{tab}request.open("GET", "{route}" + params);
 {tab}request.setRequestHeader('Content-Type', "{content_type}");
 {tab}let buffered = null;
 {tab}request.onreadystatechange = function() {{

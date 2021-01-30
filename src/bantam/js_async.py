@@ -28,7 +28,6 @@ With the above Greetings example, the generated javasctipt code will mimic the P
     class bantam {};
     bantam.salutations = class {};
     bantam.salutations.Greetings = class {
-          constructor(site){this.site = site;}
 
           /*
           Welcome someone
@@ -335,10 +334,8 @@ class bantam {
             for class_name, routes in ns.classes.items():
                 out.write(f"\n{parent_name}.{class_name} = class {{\n".encode(cls.ENCODING))
                 tab += "   "
-                out.write(f"{tab}constructor(site){{this.site = site;}}\n".encode(cls.ENCODING))
                 for method, route_, api in routes:
                     content_type = WebApplication.content_type.get(route_) or 'text/plain'
-                    is_streamed = inspect.isasyncgenfunction(api)
                     cls._generate_request(out, route_, method, api, tab, content_type)
                 tab = tab[:-3]
                 out.write(f"}};\n".encode(cls.ENCODING))  # for class end
@@ -431,7 +428,7 @@ class bantam {
             raise Exception(f"Not all arguments of '{api.__module__}.{api.__name__}' have type hints.  This is required for web_api")
         cls._generate_docs(out, api, tab)
         argnames = list(annotations.keys())
-        out.write(f"{tab}async{'*' if streamed_resp else ''} {api.__name__}({', '.join(argnames)}) {{\n".encode(cls.ENCODING))
+        out.write(f"{tab}static async{'*' if streamed_resp else ''} {api.__name__}({', '.join(argnames)}) {{\n".encode(cls.ENCODING))
         async_annotations = [a for a in annotations.items() if a[1] in (AsyncChunkIterator, AsyncLineIterator)]
         if async_annotations:
             if len(async_annotations) > 1:
@@ -456,7 +453,7 @@ class bantam {
         out.write(param_code.encode('utf-8'))
         if streamed_resp:
             out.write(f"""
-{tab}for await (var chunk of bantam.fetch_{method.value}_streamed(this.site + "{route}",
+{tab}for await (var chunk of bantam.fetch_{method.value}_streamed("{route}",
 {tab}                    "{content_type}", 
 {tab}                    params, 
 {tab}                    bantam.{convert},
@@ -468,7 +465,7 @@ class bantam {
 """.encode('utf-8'))
         else:
             out.write(f"""
-{tab}return await bantam.fetch_{method.value}(this.site + "{route}", "{content_type}", params,
+{tab}return await bantam.fetch_{method.value}("{route}", "{content_type}", params,
 {tab}           bantam.{convert}, {f", {streamed_param}" if streamed_param else ""});
 {tab[:-3]}}}
 """.encode('utf-8'))
