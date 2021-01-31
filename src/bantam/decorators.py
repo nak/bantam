@@ -9,7 +9,6 @@ from aiohttp.web import Request, Response
 from aiohttp.web_response import StreamResponse
 
 from bantam.conversions import from_str, to_str
-from bantam.xforms import deserialize, serialize
 
 WebApi = Callable[..., Awaitable[Any]]
 
@@ -34,6 +33,7 @@ def _convert_request_param(value: str, typ: Type) -> Any:
     :return: converted instance, of the given type
     :raises: TypeError if value can not be converted/deserialized
     """
+<<<<<<< HEAD
     #if hasattr(typ, '_name') and str(typ).startswith('typing.Union'):
     #    typ = typ.__args__[0]
     #    return _convert_request_param(value, typ)
@@ -45,6 +45,8 @@ def _convert_request_param(value: str, typ: Type) -> Any:
     #    elif value.lower() == 'false':
     #        return False
     #    raise ValueError(f"Expected one of 'true' or 'false' but found {value}")
+=======
+>>>>>>> 7ee57c4... added support for dataclasses and dict/list
     try:
         return from_str(value, typ)
     except Exception as e:
