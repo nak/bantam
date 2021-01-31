@@ -5,9 +5,10 @@ from pathlib import Path
 from bantam.web import WebApplication
 
 sys.path.insert(0, os.getcwd())
+sys.path.insert(0, os.path.join(os.getcwd(), ".."))
 sys.path.insert(0, os.path.join(os.getcwd(), "..", "src"))
 
-from test_js import RestAPIExample
+import test.test_js_async
 
 if __name__ == '__main__':
     root = Path(__file__).parent

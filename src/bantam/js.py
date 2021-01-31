@@ -388,11 +388,16 @@ class JavascriptGenerator:
 
     @classmethod
     def _generate_streamed_response(cls, response_type: Type, streamed_response: bool, callback: str, tab: str) -> str:
-        convert = {str: "",
-                   int: f"parseInt(val)",
-                   float: f"parseFloat(val)",
-                   bool: f"'true'== val",
-                   None: "null"}.get(response_type) or 'request.response.substr(request.seenBytes)'
+        if hasattr(response_type, '__dataclass_fields__'):
+            convert = "JSON.parse(val)"
+        else:
+            convert = {str: "",
+                       int: f"parseInt(val)",
+                       float: f"parseFloat(val)",
+                       bool: f"'true'== val",
+                       dict: "JSON.parse(val)",
+                       list: "JSON.parse(val)",
+                       None: "null"}.get(response_type) or 'request.response.substr(request.seenBytes)'
         if streamed_response and response_type not in [bytes, str, None]:
             convert_codeblock = f"""
 {tab}    // TODO: Can we clean this up a little? 

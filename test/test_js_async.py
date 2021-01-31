@@ -6,7 +6,7 @@ import sys
 import webbrowser
 from contextlib import suppress
 from pathlib import Path
-from typing import AsyncGenerator, Optional, Dict, Any
+from typing import AsyncGenerator, Optional, Dict, Any, List
 
 import pytest
 from aiohttp.web_request import Request
@@ -22,7 +22,7 @@ class RestAPIExample:
 
     @web_api(content_type='text/plain', method=RestMethod.GET)
     @staticmethod
-    async def api_get_basic(param1: int, param2: bool, param3: float, param4: str = "text") -> str:
+    async def api_get_basic(param1: int, param2: bool, param3: float, param4: str = "text", param5: Dict[str, float] = {'f1': 1.0, 'f2': 2.0}) -> str:
         """
         Some sort of doc
         :param param1: docs for first param
@@ -31,7 +31,7 @@ class RestAPIExample:
         :param param4: docs for last param
         :return: String for test_api_basic
         """
-        return "Response to test_api_basic"
+        return f"Response to test_api_basic {param5['f1']:.1f} {int(param5['f2'])}"
 
     @web_api(content_type='text/json', method=RestMethod.GET)
     @staticmethod
@@ -50,7 +50,8 @@ class RestAPIExample:
 
     @web_api(content_type='text/json', method=RestMethod.GET)
     @staticmethod
-    async def api_get_stream_text(param1: int, param2: bool, param3: float, param4: Optional[str] = None) -> AsyncGenerator[None, bytes]:
+    async def api_get_stream_bytes(param1: int, param2: bool, param3: float, param4: Optional[str] = None,
+                                  param5: Optional[List[int]] = None) -> AsyncGenerator[None, bytes]:
         """
         Some sort of doc
         :param param1:
@@ -62,7 +63,7 @@ class RestAPIExample:
         for index in range(10):
             yield f"GET COUNT: {index}"
             await asyncio.sleep(0.02)
-        yield "DONE"
+        yield f"DONE {param5}" if param5 else "DONE"
 
     @web_api(content_type='text/json', method=RestMethod.POST)
     @staticmethod

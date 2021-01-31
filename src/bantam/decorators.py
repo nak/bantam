@@ -8,6 +8,7 @@ from typing import Type, Any, Callable, Awaitable, AsyncIterator, Union, AsyncGe
 from aiohttp.web import Request, Response
 from aiohttp.web_response import StreamResponse
 
+from bantam.conversions import from_str, to_str
 from bantam.xforms import deserialize, serialize
 
 WebApi = Callable[..., Awaitable[Any]]
@@ -33,19 +34,19 @@ def _convert_request_param(value: str, typ: Type) -> Any:
     :return: converted instance, of the given type
     :raises: TypeError if value can not be converted/deserialized
     """
-    if hasattr(typ, '_name') and str(typ).startswith('typing.Union'):
-        typ = typ.__args__[0]
-        return _convert_request_param(value, typ)
-    if hasattr(typ, '__dataclass_fields__'):
-        return deserialize(value.encode('utf-8'), typ)
-    elif typ == bool:
-        if value.lower() == 'true':
-            return True
-        elif value.lower() == 'false':
-            return False
-        raise ValueError(f"Expected one of 'true' or 'false' but found {value}")
+    #if hasattr(typ, '_name') and str(typ).startswith('typing.Union'):
+    #    typ = typ.__args__[0]
+    #    return _convert_request_param(value, typ)
+    #if hasattr(typ, '__dataclass_fields__'):
+    #    return deserialize(value.encode('utf-8'), typ)
+    #elif typ == bool:
+    #    if value.lower() == 'true':
+    #        return True
+    #    elif value.lower() == 'false':
+    #        return False
+    #    raise ValueError(f"Expected one of 'true' or 'false' but found {value}")
     try:
-        return typ(value)
+        return from_str(value, typ)
     except Exception as e:
         raise TypeError(f"Converting web request string to Python type {typ}: {e}")
 
@@ -60,14 +61,7 @@ def _serialize_return_value(value: Any, encoding: str) -> bytes:
     :param value: value to convert
     :return: bytes serialized from value
     """
-    if isinstance(value, (str, bool, int, float)):
-        return str(value).encode(encoding)
-    elif hasattr(value, '__dataclass_fields__'):
-        try:
-            image = serialize(value)
-        except Exception as e:
-            raise TypeError(f"Unable to serialize Python response to string-seralized web response: {e}")
-        return image
+    return to_str(value).encode(encoding)
 
 
 async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Request, **addl_args: Any)\

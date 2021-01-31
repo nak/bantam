@@ -56,7 +56,6 @@ async generators/iterator usage.
 
 
 """
-import inspect
 import re
 from aiohttp.web_response import Response, StreamResponse
 from typing import Coroutine, Callable, Awaitable, Union
@@ -77,74 +76,41 @@ class JavascriptGeneratorAsync:
 
     BANTAM_CORE = """
 class bantam {
-
-    static async full_response(request){
-
-        let resolution;
-        let rejection;
-        let promise = new Promise( (resolve, reject) => {
-            resolution = resolve;
-            rejection = reject;
-        });
-        let cursor = 0;
-        request.onreadystatechange = function(){
-            if (request.readyState == XMLHttpRequest.DONE && (request.status > 299 || request.status < 200)) {
-                rejection({status: request.status, text:request.statusText + ': ' + request.responseText});
-            } else if(request.readyState >= XMLHttpRequest.DONE) {
-                resolution(request.response);
-            }
-        }
-        return await promise;
-    }    
-    
-    static async send_streamed(request, iterator){
-        for await (chunk of iterator){
-            if(chunk){
-                if (request.readyState == XMLHttpRequest.DONE){
-                   break;
-                }
-                request.send(chunk);
-            }
-        }
-        request.send("");
-    }
     
     static compute_query(param_map){
         let c = '?';
         let params = '';
         for (var param in param_map){
              if (typeof param_map[param] !== 'undefined'){
-                 params += c + param + '=' + param_map[param];
+                 params += c + param + '=' + JSON.stringify(param_map[param]);
                  c= ';';
              }
         }
         return params;
     }
     
-    static async * iterate(request, chunk){
-        const vals = chunk.trim().split('\\n');
-        for (val of vals){
-            let converted = parseInt(val);
-            if (typeof converted === 'numbered' && isNaN(buffered)){
-               throw new Error({status:-1, statusText:"Unable to convert server response '" + val + "' to expected type"});
-               break;
-            }
-            yield converted;
-        }
-    }
-
     static async fetch_GET(route, content_type, param_map, convert){
-        let request = new XMLHttpRequest();
-        request.open("GET", route + bantam.compute_query(param_map));
-        request.setRequestHeader('Content-Type', content_type);
-        request.send();
-        return convert(await this.full_response(request));
+        let result = await fetch(route + bantam.compute_query(param_map), 
+                    {method:'GET', headers: {'Content-Type': content_type}});
+        if (result.status < 200 || result.status > 299){
+            let statusBody = await result.body.getReader().read();
+            statusBody = result.statusText + ": " + new TextDecoder().decode(statusBody.value);
+            let stats = {status: result.status, statusText: statusBody};
+            throw stats;
+        }
+        return convert(result.text());
     }
     
     static async *fetch_GET_streamed(route, content_type, param_map, convert, return_is_bytes){
-        let body = await fetch(route + bantam.compute_query(param_map), {method:'GET', headers: {'Content-Type': content_type}});
-        let reader = await body.body.getReader();
+        let result = await fetch(route + bantam.compute_query(param_map), {method:'GET', headers: {'Content-Type': content_type}});
+        let reader = await result.body.getReader();
         while (true){
+            if (result.status < 200 || result.status > 299){
+                let statusBody = await result.body.getReader().read();
+                statusBody = result.statusText + ": " + new TextDecoder().decode(statusBody.value);
+                let stats = {status: result.status, statusText: statusBody};
+                throw stats;
+            }
             let resp = await reader.read();            
             if (resp.done){
                 break;
@@ -163,28 +129,41 @@ class bantam {
     }
 
     static async fetch_POST(route, content_type, param_map, convert, streamed_param){
-        let request = new XMLHttpRequest();
         let params;
+        let requestBody;
         if (typeof streamed_param !== 'undefined'){
-            params = this.compute_query(param_map);
+            params = bantam.compute_query(param_map);
+            requestBody = new ReadableStream({
+                async start(controller){
+                    let encoder = new TextEncoder();
+                    for await (var chunk of streamed_param){
+                        controller.enqueue(encoder.encode(chunk));
+                    }
+                    controller.close();
+                }
+            });  
         } else {
             params = '';
+            requestBody = JSON.stringify(param_map);
         }
-        request.open("POST", route + params);
-        request.setRequestHeader('Content-Type', content_type);
-        if (typeof streamed_param !== 'undefined'){
-            (async () => {
-                for await (piece of streamed_param){
-                    if (request.readyState == XMLHttpRequest.DONE){
-                        break;
-                    }
-                    request.send(piece);
-                }
-            })();
-        } else {
-            request.send(JSON.stringify(param_map));
+        try{
+            let result = await fetch(route + params, 
+                               {method:'POST', headers: {'Content-Type': content_type},
+                                body: requestBody});
+
+            if (result.status < 200 || result.status > 299){
+                let statusBody = await result.body.getReader().read();
+                statusBody = result.statusText + ": " + new TextDecoder().decode(statusBody.value);
+                let stats = {status: result.status, statusText: statusBody};
+                throw stats;
+            }
+            return convert(result.text());
+        } catch (error) {
+            if (error.message === 'Failed to fetch'){
+                throw new Error("Streamed requests not supported by this browser");
+            }
+            throw error;
         }
-        return convert(await bantam.full_response(request));
     }
 
     static async * fetch_POST_streamed(route, content_type, param_map, convert, return_is_bytes, streamed_param){
@@ -214,6 +193,12 @@ class bantam {
         }
         let reader = await body.body.getReader();
         while (true){
+            if (body.status < 200 || body.status > 299){
+                let statusBody = await result.body.getReader().read();
+                statusBody = result.statusText + ": " + new TextDecoder().decode(statusBody.value);
+                let stats = {status: result.status, statusText: statusBody};
+                throw stats;
+            }
             let resp = await reader.read();            
             if (resp.done){
                 break;
@@ -234,7 +219,8 @@ class bantam {
     static convert_int(text){
         let converted = parseInt(text);
         if (typeof converted === 'numbered' && isNaN(buffered)){
-             throw new Error({status:-1, statusText:"Unable to convert server response '" + val + "' to int"});
+              let stats ={status:-1, statusText:"Unable to convert server response '" + val + "' to int"};
+              throw stats;
          }
          return converted;
     }
@@ -251,7 +237,8 @@ class bantam {
     convert_float(text){
         let converted = parseFloat(text);
         if (typeof converted === 'numbered' && isNaN(buffered)){
-             throw new Error({status:-1, statusText:"Unable to convert server response '" + val + "' to float"});
+             let stats = {status:-1, statusText:"Unable to convert server response '" + val + "' to float"};
+             throw stats;
          }
          return converted;    
     }
@@ -260,12 +247,12 @@ class bantam {
         return text === 'true';
     }
     
-    static convert_bytes(text){
-        return text;
-    }
-    
     static convert_None(text){
         return null;
+    }
+    
+    static convert_complex(text){
+        return JSON.parse(text);
     }
     
 };
@@ -437,13 +424,17 @@ class bantam {
             argnames.remove(streamed_param)
         else:
             streamed_param = None
-
-        convert = {str: "convert_str",
-                   int: "convert_int",
-                   float: "convert_float",
-                   bool: "convert_bool",
-                   bytes: "convert_bytes",
-                   None: "convert_None"}[response_type]
+        if hasattr(response_type, '__dataclass_fields__'):
+            convert = "convert_complex"
+        else:
+            convert = {str: "convert_str",
+                       int: "convert_int",
+                       float: "convert_float",
+                       bool: "convert_bool",
+                       bytes: "convert_bytes",
+                       dict: "convert_complex",
+                       list: "convert_complex",
+                       None: "convert_None"}[response_type]
         tab += "   "
         param_code = ',\n'.join([f"{tab}   \"{argname}\": {argname}" for argname in argnames])
         param_code = f"""

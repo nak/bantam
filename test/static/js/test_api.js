@@ -17,7 +17,7 @@ class TestRunner{
           return new Promise(resolve => setTimeout(resolve, ms));
         }
         async function close(){
-            let api =bantam.test_js.RestAPIExample;
+            let api = bantam.test.test_js.RestAPIExample;
             api.publish_result(function(a, b){}, function(a,b){},
                                failed_count==0?"PASSED":JSON.stringify(self.failed));
             await sleep(5000);
@@ -89,7 +89,7 @@ class TestRunner{
 
     test_api_basic(testname) {
         let self = this;
-        let api =bantam.test_js.RestAPIExample;
+        let api =bantam.test.test_js.RestAPIExample;
         api.api_get_basic(function(text){self.onsuccess(testname, text, "Response to test_api_basic")},
             function(code, reason){self.onerror(testname, code, reason)},
             1234, true, 9.8765, "text");
@@ -97,7 +97,7 @@ class TestRunner{
 
     test_api_post_basic_optional_param_value(testname) {
         let self = this;
-        let api =bantam.test_js.RestAPIExample;
+        let api =bantam.test.test_js.RestAPIExample;
         api.api_get_basic(function(text){self.onsuccess(testname, text, "Response to test_api_basic")},
             function(code, reason){self.onerror(testname, code, reason)},
             1234, true, 9.8765);// no text param provided, but server should then us default
@@ -105,7 +105,7 @@ class TestRunner{
 
      test_api_basic_error_not_all_required_params(testname) {
         let self = this;
-        let api =bantam.test_js.RestAPIExample;
+        let api =bantam.test.test_js.RestAPIExample;
         api.api_get_basic(function(text){self.onsuccess(testname, text, "Response to test_api_basic")},
             function(code, reason){self.onerror(testname, code, reason,
             "Bad Request: Improperly formatted query: api_get_basic() missing 1 required positional argument: 'param3'")},
@@ -114,7 +114,7 @@ class TestRunner{
 
     test_api_get_streamed_response(testname){
         let self = this;
-        let api =bantam.test_js.RestAPIExample;
+        let api =bantam.test.test_js.RestAPIExample;
         let int_vals = [];
         let onreceive = function(int_val, is_done){
             int_vals.push(int_val);
@@ -140,7 +140,7 @@ class TestRunner{
 
     test_api_get_streamed_response_text(testname){
         let self = this;
-        let api =bantam.test_js.RestAPIExample;
+        let api =bantam.test.test_js.RestAPIExample;
         let count = 0
         let error = false
         let onreceive = function(text, is_done){
@@ -173,7 +173,7 @@ class TestRunner{
 
     test_api_post_basic(testname) {
         let self = this;
-        let api =bantam.test_js.RestAPIExample;
+        let api =bantam.test.test_js.RestAPIExample;
         api.api_post_basic(function(text){self.onsuccess(testname, text, "called basic post operation")},
             function(code, reason){self.onerror(testname, code, reason)},
             1234, true, 9.8765, "text");
@@ -182,7 +182,7 @@ class TestRunner{
 
     test_api_basic_optional_param_value(testname) {
         let self = this;
-        let api =bantam.test_js.RestAPIExample;
+        let api =bantam.test.test_js.RestAPIExample;
         api.api_post_basic(function(text){self.onsuccess(testname, text, "called basic post operation")},
             function(code, reason){self.onerror(testname, code, reason)},
             1234, true, 9.8765);// no text param provided, but server should then us default
@@ -192,7 +192,7 @@ class TestRunner{
 
     test_api_post_streamed_response(testname){
         let self = this;
-        let api =bantam.test_js.RestAPIExample;
+        let api =bantam.test.test_js.RestAPIExample;
         let int_vals = [];
         let onreceive = function(int_val, is_done){
             int_vals.push(int_val);
@@ -217,7 +217,7 @@ class TestRunner{
 
     test_api_post_streamed_response_text(testname){
         let self = this;
-        let api =bantam.test_js.RestAPIExample;
+        let api =bantam.test.test_js.RestAPIExample;
         let count = 0;
         let error = false;
         let onreceive = function(text, is_done){
@@ -249,7 +249,7 @@ class TestRunner{
 
     test_api_post_basic_error_not_all_required_params(testname) {
         let self = this;
-        let api =bantam.test_js.RestAPIExample;
+        let api =bantam.test.test_js.RestAPIExample;
         api.api_post_basic(function(text){self.onsuccess(testname, text, "Response to test_api_basic")},
             function(code, reason){self.onerror(testname, code, reason,
             "Bad Request: Improperly formatted query: api_post_basic() missing 1 required positional argument: 'param3'")},
