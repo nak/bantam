@@ -255,7 +255,10 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
     if not isinstance(content_type, str):
         raise Exception("@web_api must be provided one str argument which is the content type")
 
-    def wrapper(func: WebApi) -> WebApi:
+    def class_wrapper(clazz):
+
+
+    def func_wrapper(func: WebApi) -> WebApi:
         if not isinstance(func, staticmethod):
             raise ValueError("the @web_api decorator can only be used on static class methods")
         elif not inspect.iscoroutinefunction(func.__func__) and not inspect.isasyncgenfunction(func.__func__):
@@ -266,7 +269,7 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
         route = '/' + '/'.join(name_parts)
 
         async def invoke(app: WebApplication, request: Request):
-            nonlocal preprocess, postprocess
+            nonlocal preprocess, postprocess, is_classmethod
             try:
                 preprocess = preprocess or app.preprocessor
                 try:
@@ -297,4 +300,11 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
         else:
             raise ValueError(f"Unknown method {method} in @web-api")
         return func
+
+    def wrapper(obj):
+        if inspect.isclass(obj):
+            return class_wrapper(obj)
+        else:
+            return func_wrapper(obj)
+
     return wrapper
