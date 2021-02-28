@@ -16,6 +16,88 @@ from bantam.decorators import web_api, RestMethod, AsyncLineIterator
 from bantam.web import WebApplication
 
 
+@web_api(content_type='text/plain', method=RestMethod.POST)
+class ClassRestExample:
+
+    def __init__(self, val: int):
+        self._value = val
+
+    async def echo(self, param1: int, param2: bool, param3: float, param4: Optional[str] = "text") -> str:
+        """
+        Some sort of doc
+        :param param1:
+        :param param2:
+        :param param3:
+        :param param4:
+        :return: sting based on state and params
+        """
+        return f"called basic post operation on instance {self._value}: {param1} {param2} {param3} {param4}"
+
+
+@web_api(content_type='text/plain', method=RestMethod.POST)
+class ClassRestStaticExample:
+
+    @staticmethod
+    async def api_post_basic(param1: int, param2: bool, param3: float, param4: Optional[str] = "text") -> str:
+        """
+        Some sort of doc
+        :param param1:
+        :param param2:
+        :param param3:
+        :param param4:
+        :return: stream of int
+        """
+        return "called basic post operation"
+
+    @staticmethod
+    async def api_post_stream(param1: int, param2: bool, param3: float, param4: str) -> AsyncGenerator[None, int]:
+        """
+        Some sort of doc
+        :param param1:
+        :param param2:
+        :param param3:
+        :param param4:
+        :return: stream of int
+        """
+        for index in range(10):
+            yield index
+            await asyncio.sleep(0.02)
+
+    @staticmethod
+    async def api_post_streamed_req_and_resp(param1: int, param2: bool, param3: float, param4: AsyncLineIterator)\
+            -> AsyncGenerator[None, str]:
+        """
+        Some sort of doc
+        :param param1:
+        :param param2:
+        :param param3:
+        :param param4:
+        :return: stream of int
+        """
+        async for line in param4:
+            yield f"ECHO: {line}"
+            await asyncio.sleep(0.02)
+
+    @staticmethod
+    async def api_post_stream_text(param1: int, param2: bool, param3: float, param4: Optional[str] = None) -> AsyncGenerator[None, str]:
+        """
+        Some sort of doc
+        :param param1:
+        :param param2:
+        :param param3:
+        :param param4:
+        :return: stream of int
+        """
+        for index in range(10):
+            yield f"COUNT: {index}"
+            await asyncio.sleep(0.02)
+        yield "DONE"
+
+    @staticmethod
+    async def publish_result(result: str) -> None:
+        await RestAPIExample.result_queue.put(result)
+
+
 class RestAPIExample:
 
     result_queue : Optional[asyncio.Queue] = None

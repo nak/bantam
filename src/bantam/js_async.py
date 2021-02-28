@@ -411,7 +411,9 @@ class bantam {
                 streamed_resp = True
                 content_type = 'text/streamed; charset=x-user-defined'
             del annotations['return']
-        if api.__code__.co_argcount != len(annotations):
+
+        offset = 1 if 'self' in api.__code__.co_varnames else 0
+        if api.__code__.co_argcount - offset != len(annotations):
             raise Exception(f"Not all arguments of '{api.__module__}.{api.__name__}' have type hints.  This is required for web_api")
         cls._generate_docs(out, api, tab)
         argnames = list(annotations.keys())
@@ -436,10 +438,11 @@ class bantam {
                        list: "convert_complex",
                        None: "convert_None"}[response_type]
         tab += "   "
+        self_param_code = f"{tab}  \"self\": this.self_id{',' if argnames else ''}" + '\n' if offset == 1 else ""
         param_code = ',\n'.join([f"{tab}   \"{argname}\": {argname}" for argname in argnames])
         param_code = f"""
 {tab}let params = {{
-{param_code}
+{self_param_code}{param_code}
 {tab}}}"""
         out.write(param_code.encode('utf-8'))
         if streamed_resp:

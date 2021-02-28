@@ -209,7 +209,7 @@ class TestRunner{
 
     async test_api_post_streamed_response(testname){
         let self = this;
-        let api = bantam.test.test_js_async.RestAPIExample;
+        let api = bantam.test.test_js_async.ClassRestStaticExample;
         let int_vals = [];
         let onreceive = function(int_val, is_done){
             int_vals.push(int_val);

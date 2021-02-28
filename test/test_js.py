@@ -163,7 +163,7 @@ class TestJavascriptGenerator:
                     flags = ["-new-instance"]
             if not browser:
                 os.write(sys.stderr.fileno(),
-                         b"UNABLE TO GET BROWSER SUPPORINT HEADLESS CONFIGURATION. DEFAULTING TO NON_HEADLESSS")
+                         b"UNABLE TO GET BROWSER SUPPORT HEADLESS CONFIGURATION. DEFAULTING TO NON_HEADLESSS")
                 browser = webbrowser.get()
             cmdline = [browser.name] + flags + ["http://localhost:8080/static/index.html"]
             process = subprocess.Popen(cmdline)

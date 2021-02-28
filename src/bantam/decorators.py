@@ -3,7 +3,7 @@ import inspect
 import json
 import sys
 from enum import Enum
-from typing import Type, Any, Callable, Awaitable, AsyncIterator, Union, AsyncGenerator, Optional, Dict
+from typing import Type, Any, Callable, Awaitable, Union, AsyncGenerator, Optional, Dict
 
 from aiohttp.web import Request, Response
 from aiohttp.web_response import StreamResponse
@@ -11,6 +11,33 @@ from aiohttp.web_response import StreamResponse
 from bantam.conversions import from_str, to_str
 
 WebApi = Callable[..., Awaitable[Any]]
+
+
+def is_static_method(clazz, attr, value=None):
+    """Test if a value of a class is static method.
+
+    example::
+
+        class MyClass(object):
+            @staticmethod
+            def method():
+                ...
+
+    :param clazz: the class
+    :param attr: attribute name
+    :param value: attribute value
+    """
+    if value is None:
+        value = getattr(clazz, attr)
+    assert getattr(clazz, attr) == value
+
+    for cls in inspect.getmro(clazz):
+        if inspect.isroutine(value):
+            if attr in cls.__dict__:
+                bound_value = cls.__dict__[attr]
+                if isinstance(bound_value, staticmethod):
+                    return True
+    return False
 
 
 class RestMethod(Enum):
@@ -22,6 +49,9 @@ AsyncChunkIterator = Callable[[int], Awaitable[AsyncGenerator[None, bytes]]]
 AsyncLineIterator = AsyncGenerator[None, str]
 PreProcessor = Callable[[Request], Union[None, Dict[str, Any]]]
 PostProcessor = Callable[[Union[Response, StreamResponse]], Union[Response, StreamResponse]]
+
+class ObjectRepo:
+    instances: Dict[str, Any] = {}
 
 
 def _convert_request_param(value: str, typ: Type) -> Any:
@@ -52,8 +82,8 @@ def _serialize_return_value(value: Any, encoding: str) -> bytes:
     return to_str(value).encode(encoding)
 
 
-async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Request, **addl_args: Any)\
-        -> Union[Response, StreamResponse]:
+async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Request, clazz: Any,
+                                  **addl_args: Any) -> Union[Response, StreamResponse]:
     """
     Invoke the underlying GET web API from given request
     :param func:  async function to be called
@@ -85,8 +115,18 @@ async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Requ
         kwargs = {k: _convert_request_param(v, annotations[k]) for k, v in request.query.items()}
         if addl_args:
             kwargs.update(addl_args)
-        # call the underlying function:
-        result = func(**kwargs)
+        if clazz:
+            self_id = kwargs.get('self')
+            if self_id is None:
+                raise ValueError("No instance provided for call to instance method")
+            instance = ObjectRepo.instances.get(self_id)
+            if instance is None:
+                raise ValueError(f"No instance id found for request {self_id}")
+            del kwargs['self']
+            result = func(instance, **kwargs)
+        else:
+            # call the underlying function:
+            result = func(**kwargs)
         if inspect.isasyncgen(result):
             #################
             #  streamed response through async generator:
@@ -122,7 +162,8 @@ async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Requ
         del WebApplication._context[sys._getframe(0)]
 
 
-async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Request, **addl_args: Any) -> Response:
+async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Request, clazz: Any,
+                                   **addl_args: Any) -> Union[Response, StreamResponse]:
     """
     Invoke the underlying POST web API from given request
     :param func:  async function to be called
@@ -186,7 +227,17 @@ async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Req
         # call the underlying function:
         if addl_args:
             kwargs.update(addl_args)
-        awaitable = func(**kwargs)
+        if clazz:
+            self_id = kwargs.get('self')
+            if self_id is None:
+                raise ValueError("No instance provided for call to instance method")
+            instance = ObjectRepo.instances.get(self_id)
+            if instance is None:
+                raise ValueError(f"No instance id found for request {self_id}")
+            del kwargs['self']
+            awaitable = func(instance, **kwargs)
+        else:
+            awaitable = func(**kwargs)
         if inspect.isasyncgen(awaitable):
             #################
             #  streamed response through async generator:
@@ -256,20 +307,55 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
         raise Exception("@web_api must be provided one str argument which is the content type")
 
     def class_wrapper(clazz):
+        if hasattr(clazz, '_release') or hasattr(clazz, '_create'):
+            raise TypeError("Classes with @web_api applied cannot have methods named _release nor _create")
+        methods = inspect.getmembers(clazz, predicate=inspect.isroutine)
+        all_static = all([m for m in methods if isinstance(m, staticmethod)])
+        for name, method_ in methods:
+            if name.startswith('_') or (name == '__init__' and all_static):
+                continue
+            elif name == '__init__' and not all_static:
+                @staticmethod
+                async def _create(*args, **kargs):
+                    instance = clazz(*args, **kargs)
+                    self_id = str(instance).split(' ', maxsplit=1)[-1][:-1]
+                    ObjectRepo.instances[self_id] = instance
 
+                _create.__annotations__ = clazz.__init__.__annotations__
+                _create.__annotations__['return'] = str
+                clazz._create = _create
+                func_wrapper(clazz._create)
 
-    def func_wrapper(func: WebApi) -> WebApi:
-        if not isinstance(func, staticmethod):
-            raise ValueError("the @web_api decorator can only be used on static class methods")
-        elif not inspect.iscoroutinefunction(func.__func__) and not inspect.isasyncgenfunction(func.__func__):
-            raise ValueError("the @web_api decorator can only be applied to methods that are coroutines (async)")
-        func = func.__func__
-        name = func.__qualname__
+                async def _release(self):
+                    self_id = str(self).split(' ', maxsplit=1)[-1][:-1]
+                    if self_id in ObjectRepo.instances:
+                        del ObjectRepo.instances[self_id]
+
+                clazz._release = _release
+
+                func_wrapper(clazz._release, clazz)
+            else:
+                func_wrapper(method_, clazz)
+
+    def func_wrapper(func: WebApi, clazz=None) -> WebApi:
+        if clazz:
+            if not inspect.iscoroutinefunction(func) and not inspect.isasyncgenfunction(func):
+                raise ValueError(f"the @web_api decorator can only be applied to classes with public methods that are coroutines (async); see {func.__qualname__}")
+            if is_static_method(clazz, func.__name__):
+                clazz = None
+
+        elif clazz is None:
+            if not isinstance(func, staticmethod):
+                raise ValueError("the @web_api decorator can only be used on static class methods")
+            if not inspect.iscoroutinefunction(func.__func__) and not inspect.isasyncgenfunction(func.__func__):
+                raise ValueError("the @web_api decorator can only be applied to methods that are coroutines (async)")
+            func = func.__func__
+        name = func.__qualname__.replace('__init__', 'create').replace('._release', '.release')
         name_parts = name.split('.')[-2:]
         route = '/' + '/'.join(name_parts)
 
         async def invoke(app: WebApplication, request: Request):
-            nonlocal preprocess, postprocess, is_classmethod
+            nonlocal preprocess, postprocess
             try:
                 preprocess = preprocess or app.preprocessor
                 try:
@@ -278,9 +364,11 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
                     return Response(status=400, text=f"Error in preprocessing request: {e}")
                 if method == RestMethod.GET:
                     response = await _invoke_get_api_wrapper(func, content_type=content_type, request=request,
+                                                             clazz=invoke.clazz,
                                                              **addl_args)
                 elif method == RestMethod.POST:
                     response = await _invoke_post_api_wrapper(func, content_type=content_type, request=request,
+                                                             clazz=invoke.clazz,
                                                               **addl_args)
                 else:
                     raise ValueError(f"Unknown method {method} in @web-api")
@@ -292,7 +380,7 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
                 return response
             except Exception as e:
                 return Response(status=500, text=f"Server error: {e}")
-
+        invoke.clazz = clazz
         if method == RestMethod.GET:
             WebApplication.register_route_get(route, invoke, func, content_type)
         elif method == RestMethod.POST:
