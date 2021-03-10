@@ -233,12 +233,19 @@ class TestJavascriptGenerator:
 
         async def launch_browser():
             await asyncio.sleep(2.0)
+            browser = None
+            default = False
             try:
                 browser = webbrowser.get("chrome")
             except Exception:
                 with suppress(Exception):
                     browser = webbrowser.get("google-chrome")
-            flags = ["--new-window"] if browser else []
+                if not browser:
+                    browser = webbrowser.get()
+                    default = True
+            if not browser:
+                raise Exception("No browser found")
+            flags = ["--new-window"] if browser and not default else []
             if not browser:
                 with suppress(Exception):
                     browser = webbrowser.get("firefox")
@@ -247,14 +254,15 @@ class TestJavascriptGenerator:
                 os.write(sys.stderr.fileno(),
                          b"UNABLE TO GET BROWSER SUPPORINT HEADLESS CONFIGURATION. DEFAULTING TO NON_HEADLESSS")
                 browser = webbrowser.get()
-            cmdline = [browser.name] + flags + ["http://localhost:8080/static/index_async.html"]
-            process = subprocess.Popen(cmdline)
+            browser.open("http://localhost:8080/static/index_async.html")
+            #cmdline = [browser.name] + flags + ["http://localhost:8080/static/index_async.html"]
+            #process = subprocess.Popen(cmdline)
             result = await RestAPIExample.result_queue.get()
             await asyncio.sleep(2.0)
             await app.shutdown()
-            if process.returncode != None:
-                raise Exception("Browser died!")
-            process.kill()
+            # if process.returncode != None:
+            #    raise Exception("Browser died!")
+            # process.kill()
             return result
 
         try:

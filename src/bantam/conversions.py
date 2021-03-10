@@ -23,7 +23,7 @@ def to_str(val: Any) -> str:
 
 
 def from_str(image: str, typ: Type) -> Any:
-    if hasattr(typ, '_name') and str(typ).startswith('typing.Union'):
+    if hasattr(typ, '_name') and (str(typ).startswith('typing.Union') or str(typ).startswith('typing.Optional')):
         typ = typ.__args__[0]
     if typ == str:
         return image

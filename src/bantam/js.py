@@ -312,8 +312,12 @@ class JavascriptGenerator:
 {tab}let map = {{{','.join(['"' + arg + '": ' + arg for arg in argnames])}}};
 {tab}for (var param of [{", ".join(['"' + a + '"' for a in argnames])}]){{
 {tab}    if (typeof map[param] !== 'undefined'){{
-{tab}        params += c + param + '=' + map[param];
-{tab}        c= ';';
+{tab}        let value = JSON.stringify(map[param])
+{tab}        if (value[0] === '"'){{
+{tab}            value = value.slice(1, -1)
+{tab}        }}
+{tab}        params += c + param + '=' + value;
+{tab}        c= '&';
 {tab}    }}
 {tab}}}"""
             query = 'params'
@@ -364,11 +368,15 @@ class JavascriptGenerator:
 {tab}let request = new XMLHttpRequest();
 {tab}let params = "";
 {tab}let c = '?';
-{tab}let map = {{{','.join(['"'+ arg+ '": ' + arg for arg in argnames])}}};
+{tab}let map = {{{','.join(['"' + arg + '": ' + arg for arg in argnames])}}};
 {tab}for (var param of [{", ".join(['"' + a + '"' for a in argnames])}]){{
 {tab}    if (typeof map[param] !== 'undefined'){{
-{tab}        params += c + param + '=' + map[param];
-{tab}        c= ';';
+{tab}        let value = JSON.stringify(map[param])
+{tab}        if (value[0] === '"'){{
+{tab}            value = value.slice(1, -1)
+{tab}        }}
+{tab}        params += c + param + '=' + value;
+{tab}        c= '&';
 {tab}    }}
 {tab}}}
 {tab}request.open("GET", "{route}" + params);
