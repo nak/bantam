@@ -2,15 +2,18 @@ import asyncio
 import inspect
 import json
 import sys
-from enum import Enum
-from typing import Type, Any, Callable, Awaitable, Union, AsyncGenerator, Optional, Dict
+from typing import Type, Any, Callable, Awaitable, Union, Optional, Dict
 
 from aiohttp.web import Request, Response
 from aiohttp.web_response import StreamResponse
 
+from bantam import HTTPException
+from bantam.api import AsyncChunkIterator, AsyncLineIterator, API, RestMethod
 from bantam.conversions import from_str, to_str
 
 WebApi = Callable[..., Awaitable[Any]]
+
+_bantam_web_apis = {}
 
 
 def is_static_method(clazz, attr, value=None):
@@ -40,15 +43,9 @@ def is_static_method(clazz, attr, value=None):
     return False
 
 
-class RestMethod(Enum):
-    GET = 'GET'
-    POST = 'POST'
-
-
-AsyncChunkIterator = Callable[[int], Awaitable[AsyncGenerator[None, bytes]]]
-AsyncLineIterator = AsyncGenerator[None, str]
 PreProcessor = Callable[[Request], Union[None, Dict[str, Any]]]
 PostProcessor = Callable[[Union[Response, StreamResponse]], Union[Response, StreamResponse]]
+
 
 class ObjectRepo:
     instances: Dict[str, Any] = {}
@@ -79,7 +76,10 @@ def _serialize_return_value(value: Any, encoding: str) -> bytes:
     :param value: value to convert
     :return: bytes serialized from value
     """
-    return to_str(value).encode(encoding)
+    try:
+        return to_str(value).encode(encoding)
+    except Exception as e:
+        raise TypeError(f"Converting response from Python type {type(value)} to string: {e}")
 
 
 async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Request, clazz: Any,
@@ -91,8 +91,12 @@ async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Requ
     :param request: request to be processed
     :return: http response object
     """
-    from .web import WebApplication
+    from .http import WebApplication
+    # noinspection PyUnresolvedReferences,PyProtectedMember
     WebApplication._context[sys._getframe(0)] = request
+    api = API(func, method=RestMethod.GET, content_type=content_type)
+    if api.has_streamed_request:
+        raise TypeError("GET web_api methods does not support streaming requests")
     try:
         encoding = 'utf-8'
         items = content_type.split(';')
@@ -100,28 +104,25 @@ async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Requ
             item = item.lower()
             if item.startswith('charset='):
                 encoding = item.replace('charset=', '')
-        annotations = dict(func.__annotations__)
-        # async_annotations = [a for a in annotations.items() if a[1] in (bytes, AsyncChunkIterator, AsyncLineIterator)]
-        # if async_annotations:
-        #     raise TypeError("Cannot specify a parameter to be streamed for GET requests, you must use POST")
-        if 'return' in annotations:
-            del annotations['return']
         # report first param that doesn't match the Python signature:
-        for k in [p for p in request.query if p not in annotations]:
-            return Response(status=400,
-                text=f"No such parameter or missing type hint for param {k} in method {func.__qualname__}")
+        for k in [p for p in request.query if p not in api.arg_annotations]:
+            return Response(
+                status=400,
+                text=f"No such parameter or missing type hint for param {k} in method {func.__qualname__}"
+            )
 
         # convert incoming str values to proper type:
-        kwargs = {k: _convert_request_param(v, annotations[k]) for k, v in request.query.items()}
+        kwargs = {k: _convert_request_param(v, api.arg_annotations[k]) for k, v in request.query.items()}
         if addl_args:
             kwargs.update(addl_args)
         if clazz:
+            # we are invoking a class method, and need to lookup instance
             self_id = kwargs.get('self')
             if self_id is None:
-                raise ValueError("No instance provided for call to instance method")
+                raise ValueError("A self request parameter is needed. No instance provided for call to instance method")
             instance = ObjectRepo.instances.get(self_id)
             if instance is None:
-                raise ValueError(f"No instance id found for request {self_id}")
+                raise ValueError(f"No instance found for request with 'self' id of {self_id}")
             del kwargs['self']
             result = func(instance, **kwargs)
         else:
@@ -138,6 +139,7 @@ async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Requ
             await response.prepare(request)
             try:
                 # iterate to get the one (and hopefully only) yielded element:
+                # noinspection PyTypeChecker
                 async for res in result:
                     serialized = _serialize_return_value(res, encoding)
                     if not isinstance(res, bytes):
@@ -156,10 +158,34 @@ async def _invoke_get_api_wrapper(func: WebApi, content_type: str, request: Requ
                             content_type=content_type)
     except TypeError as e:
         return Response(status=400, text=f"Improperly formatted query: {str(e)}")
+    except HTTPException as e:
+        return Response(status=e.status_code, text=str(e))
     except Exception as e:
         return Response(status=500, text=str(e))
     finally:
+        # noinspection PyUnresolvedReferences,PyProtectedMember
         del WebApplication._context[sys._getframe(0)]
+
+
+async def line_by_line_response(request: Request):
+    reader = request.content
+    chunk = True
+    while not reader.is_eof() and chunk:
+        chunk = await reader.readline()
+        yield chunk
+    last = await reader.readline()
+    if last:
+        yield last
+
+
+def streamed_bytes_arg_value(request: Request):
+    async def iterator(packet_size: int):
+        reader = request.content
+        chunk = True
+        while not reader.is_eof() and chunk:
+            chunk = await reader.read(packet_size)
+            yield chunk
+    return iterator
 
 
 async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Request, clazz: Any,
@@ -171,7 +197,8 @@ async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Req
     :param request: request to be processed
     :return: http response object
     """
-    from .web import  WebApplication
+    from .http import WebApplication
+    # noinspection PyUnresolvedReferences,PyProtectedMember
     WebApplication._context[sys._getframe(0)] = request
     encoding = 'utf-8'
     items = content_type.split(';')
@@ -180,47 +207,28 @@ async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Req
             encoding = item.replace('charset=', '')
     if not request.can_read_body:
         raise TypeError("Cannot read body for request in POST operation")
-
-    annotations = dict(func.__annotations__)
-    if 'return' in annotations:
-        del annotations['return']
+    api = API(func, method=RestMethod.POST, content_type=content_type)
     try:
-        kwargs = {}
-        async_annotations = [a for a in annotations.items() if a[1] in (bytes, AsyncChunkIterator, AsyncLineIterator)]
-        if async_annotations:
-            if not len(async_annotations) == 1:
-                raise ValueError("At most one parameter of holding onf of the types: bytes, AsyncChunkGenerator or AsynLineGenerator is allowed")
-            key, typ = async_annotations[0]
+        kwargs: Dict[str, Any] = {}
+        if api.has_streamed_request:
+            key, typ = api.async_arg_annotations.items()[0]
             if typ == bytes:
                 kwargs = {key: await request.read()}
             elif typ == AsyncLineIterator:
-                async def iterator():
-                    reader = request.content
-                    chunk = True
-                    while not reader.is_eof() and chunk:
-                        chunk = await reader.readline()
-                        yield chunk
-                    last = await reader.readline()
-                    if last:
-                        yield last
-                kwargs = {key: iterator()}
+                kwargs = {key: line_by_line_response(request)}
             elif typ == AsyncChunkIterator:
-                async def iterator(packet_size: int):
-                    reader = request.content
-                    chunk = True
-                    while not reader.is_eof() and chunk:
-                        chunk = await reader.read(packet_size)
-                        yield chunk
-                kwargs = {key: iterator}
-            del annotations[key]
-            kwargs.update({k: _convert_request_param(v, annotations[k]) for k, v in request.query.items()})
+                kwargs = {key: streamed_bytes_arg_value(request)}
+            kwargs.update({k: _convert_request_param(v, api.synchronous_arg_annotations[k])
+                           for k, v in request.query.items() if k in api.synchronous_arg_annotations})
         else:
             # treat payload as json string:
             bytes_response = await request.read()
             json_dict = json.loads(bytes_response.decode('utf-8'))
-            for k in [p for p in json_dict if p not in annotations]:
-                return Response(status=400,
-                    text=f"No such parameter or missing type hint for param {k} in method {func.__qualname__}")
+            for k in [p for p in json_dict if p not in api.arg_annotations]:
+                return Response(
+                    status=400,
+                    text=f"No such parameter or missing type hint for param {k} in method {func.__qualname__}"
+                )
 
             # convert incoming str values to proper type:
             kwargs.update(dict(json_dict))
@@ -250,6 +258,7 @@ async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Req
             await response.prepare(request)
             try:
                 # iterate to get the one (and hopefully only) yielded element:
+                # noinspection PyTypeChecker
                 async for res in awaitable:
                     serialized = _serialize_return_value(res, encoding)
                     if not isinstance(res, bytes):
@@ -263,7 +272,6 @@ async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Req
             #################
             #  regular response
             #################
-            from .web import WebApplication
             result = _serialize_return_value(await awaitable, encoding)
             return Response(status=200, body=result if result is not None else b"Success",
                             content_type=content_type)
@@ -273,6 +281,7 @@ async def _invoke_post_api_wrapper(func: WebApi, content_type: str, request: Req
     except Exception as e:
         return Response(status=500, text=str(e))
     finally:
+        # noinspection PyUnresolvedReferences,PyProtectedMember
         del WebApplication._context[sys._getframe(0)]
 
 
@@ -302,7 +311,7 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
     :param method: one of MethodEnum rest api methods (GET or POST)
     :return: callable decorator
     """
-    from .web import WebApplication
+    from .http import WebApplication
     if not isinstance(content_type, str):
         raise Exception("@web_api must be provided one str argument which is the content type")
 
@@ -315,6 +324,7 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
             if name.startswith('_') or (name == '__init__' and all_static):
                 continue
             elif name == '__init__' and not all_static:
+                # noinspection PyDecorator
                 @staticmethod
                 async def _create(*args, **kargs):
                     instance = clazz(*args, **kargs)
@@ -324,6 +334,7 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
                 _create.__annotations__ = clazz.__init__.__annotations__
                 _create.__annotations__['return'] = str
                 clazz._create = _create
+                # noinspection PyProtectedMember
                 func_wrapper(clazz._create)
 
                 async def _release(self):
@@ -333,14 +344,19 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
 
                 clazz._release = _release
 
+                # noinspection PyProtectedMember
                 func_wrapper(clazz._release, clazz)
             else:
-                func_wrapper(method_, clazz)
+                if not isinstance(method_, staticmethod):
+                    _bantam_web_apis[method_] = clazz
 
     def func_wrapper(func: WebApi, clazz=None) -> WebApi:
+        if func in _bantam_web_apis:
+            return func_wrapper(func, _bantam_web_apis[func])
         if clazz:
             if not inspect.iscoroutinefunction(func) and not inspect.isasyncgenfunction(func):
-                raise ValueError(f"the @web_api decorator can only be applied to classes with public methods that are coroutines (async); see {func.__qualname__}")
+                raise ValueError("the @web_api decorator can only be applied to classes with public "
+                                 f"methods that are coroutines (async); see {func.__qualname__}")
             if is_static_method(clazz, func.__name__):
                 clazz = None
 
@@ -368,7 +384,7 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
                                                              **addl_args)
                 elif method == RestMethod.POST:
                     response = await _invoke_post_api_wrapper(func, content_type=content_type, request=request,
-                                                             clazz=invoke.clazz,
+                                                              clazz=invoke.clazz,
                                                               **addl_args)
                 else:
                     raise ValueError(f"Unknown method {method} in @web-api")
@@ -390,9 +406,6 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
         return func
 
     def wrapper(obj):
-        if inspect.isclass(obj):
-            return class_wrapper(obj)
-        else:
-            return func_wrapper(obj)
+        return class_wrapper(obj) if inspect.isclass(obj) else func_wrapper(obj)
 
     return wrapper

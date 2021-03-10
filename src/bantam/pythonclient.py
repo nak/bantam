@@ -24,6 +24,8 @@ With the above Greetings example, the generated Pyahon has the same code structu
 only the @web_api declared class metthods are present, and the implementation is a Rest-based calling implementation
 to a remote server.
 """
+raise NotImplemented("This package is under construction and should not be used at this time")
+
 import os
 import re
 from pathlib import Path
@@ -33,7 +35,8 @@ from typing import Coroutine, Callable, Awaitable, Union
 from typing import Dict, Tuple, List, IO, Type
 from urllib.request import Request
 
-from bantam.decorators import RestMethod, WebApi, AsyncChunkIterator, AsyncLineIterator
+from bantam.decorators import WebApi
+from bantam.api import AsyncChunkIterator, AsyncLineIterator, RestMethod
 
 AsyncApi = Callable[[Request], Awaitable[Union[Response, StreamResponse]]]
 
@@ -66,6 +69,7 @@ class PythonClientGenerator:
         content_types: Dict[WebApi, str] = {}
         routes: Dict[WebApi, str] = {}
         top_dir = None
+        common_mod = None
 
         for method, callables in {RestMethod.GET: WebApplication.callables_get,
                           RestMethod.POST: WebApplication.callables_post}.items():
@@ -77,29 +81,22 @@ class PythonClientGenerator:
                 if not top_dir.exists():
                     top_dir.mkdir(parents=True)
                 top_mod = top_dir.joinpath('__init__.py')
-                if '.' in module:  # top level mod
-                    mod_path = top_dir.joinpath(module.replace('.', os.path.sep) + ".py")
-                    with open(mod_path, 'wb') as out:
+                if not common_mod:
+                    common_mod = module.split('.', maxsplit=1)[0]
+                    with open(top_mod, 'wb') as out:
                         out.write(f"""
-from {top_mod.name} import get_config
-import aiohttp
-import typing
-from typing import Any, Type, Dict, Optional, AsyncGenerator, Callable, Awaitable
-
-""")
-                else:
-                    mod_path = top_dir.joinpath('__init__.py')
-                    with open(mod_path, 'wb') as out:
-                        out.write(f"""
-import aiohttp
-import typing
-from typing import Any, Type, Dict, Optional, AsyncGenerator, Callable, Awaitable
-
+from typing import Any, Dict, Optional, Type
 from dataclasses import dataclass, field
+
 
 @dataclass(frozen=True)
 class Config:
+    \"\"\"
+    class to hold common client configuration information
+    \"\"\"
+    # base url of server
     base_url: str
+    # common headers to be sent on every request
     common_headers: Dict[str, str] = field(default_factory=dict)
 
 
@@ -107,6 +104,11 @@ _config: Optional[Config] = None
 
 
 def setup_client(config):
+    \"\"\"
+    Setup client configuration.  This must be called once before any calls to server are made
+
+    :param config:  The `Config` object used to specify server interaction details
+    \"\"\"
     global _config
     if _config is not None:
         raise Exception("Cannot override existing config")
@@ -114,27 +116,18 @@ def setup_client(config):
 
 
 def get_config():
+    \"\"\"
+    :return: The server interaction configuration information
+    \"\"\"
     if _config is None:
         raise Exception("No configuration provided for bantam Python web client")
     return _config
 
-""".encode('utf-8'))
-                if not mod_path.parent.exists():
-                    mod_path.parent.mkdir(parents=True)
-                class_name, method = api.__qualname__.split('.')
-                classes.setdefault(mod_path, {}).setdefault(class_name, {}).setdefault(RestMethod.GET, [])
-                classes[mod_path][class_name][RestMethod.GET].append(api)
-        if top_dir is None:
-            raise TypeError("No web abi definitions found to be generated")
-        for output_path, class_dict in classes.items():
-            with open(output_path, 'ba') as out:
-                out.write(f"""
-
-AsyncChunkIterator = Callable[[int], Awaitable[AsyncGenerator[None, bytes]]]
-AsyncLineIterator = AsyncGenerator[None, str]
-
 
 def _serialize(value: Any, typ: Type) -> bytes:
+    \"\"\"
+    Serialize given value of given type to a string for use in Rest communications
+    \"\"\"
     val = {{int: str(value),
            float: str(value),
            bool: str(value).lower(),
@@ -149,7 +142,11 @@ def _serialize(value: Any, typ: Type) -> bytes:
             raise ValueError("Result of serialize method call on {{typ}} is not bytes but {{type(val)}}")
     return val
 
+
 def _deserialize(text: bytes, typ: Type):
+    \"\"\"
+    Deserialize the given bytes (from a Rest response) into the given type
+    \"\"\"
     if typ is None:
         return
     val = {{int: int(text),
@@ -165,6 +162,35 @@ def _deserialize(text: bytes, typ: Type):
                 raise ValueError("Result of {{typ}}.deserialize() was not of type {{typ}} as expected")
     return val
     
+""".encode('utf-8'))
+                    top_mod_generated = True
+                if '.' in module:  # top level mod
+                    mod_path = output_path.joinpath(module.replace('.', os.path.sep) + ".py")
+                    os.makedirs(os.path.dirname(mod_path), exist_ok=True)
+                    with open(mod_path, 'wb') as out:
+                        out.write(f"""
+from {common_mod} import get_config, _deserialize, _serialize
+import aiohttp
+import typing
+from typing import Optional, AsyncGenerator, Callable, Awaitable
+
+""".encode('utf-8'))
+
+                if not mod_path.parent.exists():
+                    mod_path.parent.mkdir(parents=True)
+                class_name, class_method = api.__qualname__.split('.')
+                classes.setdefault(mod_path, {}).setdefault(class_name, {}).setdefault(method, [])
+                classes[mod_path][class_name][method].append(api)
+        if top_dir is None:
+            raise TypeError("No web abi definitions found to be generated")
+        for output_path, class_dict in classes.items():
+            with open(output_path, 'ba') as out:
+                out.write(f"""
+
+AsyncChunkIterator = Callable[[int], Awaitable[AsyncGenerator[None, bytes]]]
+AsyncLineIterator = AsyncGenerator[None, str]
+
+
 """.encode('utf-8'))
                 for class_name, api_dict in class_dict.items():
                     for rest_method, api_list in api_dict.items():
@@ -196,10 +222,12 @@ def _deserialize(text: bytes, typ: Type):
         out.write(f"    def {method_name}({method_args}) -> {type_name(return_type)}:\n".encode('utf-8'))
         out.write(b"        param_values = locals()\n")
         out.write(f"""
-        query = ";".join(["name={{_serialize(value, typ)}}" for name, value in param_values.items()])
+        param_types = { {name: typ.__name__  if hasattr(typ, "__name__") else str(typ) for name, typ in 
+                         arg_annotations.items() if 'typing.Async' not in str(typ)} }
+        query = ";".join([f"{{name}}={{_serialize(value, param_types[name])}}" for name, value in param_values.items()])
         headers = get_config().common_headers.update({{'content_type': "{content_type}"}})
         route = "{route}"
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(headers=get_config().common_headers) as session:
             async with session.get(f"{{get_config().base_url}}{{route}}?{{query}}", headers=headers) as resp:""".encode('utf-8'))
         if not return_async_iter:
             out.write(f"""
@@ -229,18 +257,26 @@ def _deserialize(text: bytes, typ: Type):
     def generate_post_method(cls, out: IO, api: WebApi, content_type: str, route: str) -> None:
         method_name = api.__qualname__.split('.')[-1]
         annotations = api.__annotations__
+        arg_annotations = dict(api.__annotations__)
+        if 'return' in arg_annotations:
+            del arg_annotations['return']
         return_type = annotations.get('return').replace('NoneType', 'None')
-        return_async_iter = str(return_type).startswith('typying.AsyncGenerator')
+        return_async_iter = str(return_type).startswith('typying.AsyncIterator')
 
         method_args = ", ".join([f"{name}:{type_name(typ)}" for name, typ in api.__annotations__.items()])
         out.write(b"    @staticmethod\n")
         out.write(f"        def {method_name}({method_args}):".encode('utf-8'))
         out.write(b"            param_values = locals()")
         async_annotations = [a for a in annotations.items() if a[1] in (bytes, AsyncChunkIterator, AsyncLineIterator)]
+        if len(async_annotations) > 1:
+            raise TypeError("Only one parameter in a web api can by an async iterator")
         if async_annotations:
             out.write(f"""
+            annotations = { {name: typ.__name__  if hasattr(typ, "__name__") else str(typ) for name, typ in 
+                             arg_annotations.items() if name not in async_annotations} }
+            async_param = {async_annotations[0] if async_annotations else "None"}
             del param_values["{async_annotations[0][0]}"]
-            query = ";".join(["name={{_serialize(value, typ)}}"for name, value in param_values.items()])
+            query = ";".join([f"{{name}}={{_serialize(value, annotations[name])}}" for name, value in param_values.items()])
             headers = get_config().common_headers.update({{'content_type': "{content_type}"}})
             route = "{route}"
             payload = {{"{async_annotations[0][0]}": "{async_annotations[0][1]}"}}

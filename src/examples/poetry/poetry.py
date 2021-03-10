@@ -3,7 +3,7 @@ from typing import AsyncGenerator
 
 import os
 
-from bantam.decorators import RestMethod
+from bantam.api import RestMethod
 from bantam.web import WebApplication, web_api
 
 class PoetryReader:

@@ -70,8 +70,7 @@ from typing import Coroutine, Callable, Awaitable, Union
 from typing import Dict, Tuple, List, IO, Type
 from urllib.request import Request
 
-from bantam.decorators import RestMethod
-
+from bantam.api import API, RestMethod
 
 AsyncApi = Callable[[Request], Awaitable[Union[Response, StreamResponse]]]
 
@@ -115,6 +114,7 @@ class JavascriptGenerator:
         def classes(self):
             return self._classes
 
+    # noinspection PyUnresolvedReferences
     @classmethod
     def generate(cls, out: IO, skip_html: bool = True) -> None:
         """
@@ -124,7 +124,7 @@ class JavascriptGenerator:
         :param skip_html: whether to skip entries of content type 'text/html' as these are generally not used in direct
            javascript calls
         """
-        from bantam.web import WebApplication
+        from bantam.http import WebApplication
         namespaces = cls.Namespace()
         for route, api in WebApplication.callables_get.items():
             content_type = WebApplication.content_type.get(route)
@@ -161,11 +161,11 @@ class JavascriptGenerator:
             process_namespace(namespace, name)
 
     @classmethod
-    def _generate_docs(cls, out: IO, api: AsyncApi, tab, callback: str = 'onsuccess') -> None:
+    def _generate_docs(cls, out: IO, api: API, tab, callback: str = 'onsuccess') -> None:
         def prefix(text: str, tab: str):
             new_text = ""
-            for line in text.splitlines():
-                new_text += tab + line.strip() + '\n'
+            for line_ in text.splitlines():
+                new_text += tab + line_.strip() + '\n'
             return new_text
         basic_doc_parts = prefix(api.__doc__ or "<<No API documentation provided>>", tab).split(':param', maxsplit=1)
         if len(basic_doc_parts) == 1:
@@ -175,16 +175,13 @@ class JavascriptGenerator:
             basic_doc, params_doc = basic_doc_parts
             params_doc = ':param ' + params_doc
 
-        annotations = dict(api.__annotations__)
         name_map = {'str': 'string', 'bool': 'boolean', 'int': 'number [int]', 'float': 'number [float]'}
         response_type_name = "<<unspecified>>"
         return_cb_type_name = None
         type_name = None
-        for name, typ in annotations.items():
+        for name, typ in api.arg_annotations.items():
             try:
-                if hasattr(typ, 'deserialize'):
-                    type_name = f"str serialization of {name_map.get(type_name, type_name)}"
-                elif hasattr(typ, '_name') and typ._name == 'AsyncGenerator':
+                if hasattr(typ, '_name') and typ._name in ['AsyncGenerator', 'AsyncIterator']:
                     var_type_name = typ.__args__[1].__name__
                     if name != 'return':
                         type_name = None
@@ -244,15 +241,9 @@ class JavascriptGenerator:
     @classmethod
     def _generate_request(cls, out: IO, route: str, method: RestMethod,
                           api: AsyncApi, tab: str, content_type: str, streamed_resp: bool):
-        annotations = dict(api.__annotations__)
-        response_type = annotations.get('return')
-        if 'return' not in annotations:
-            response_type = 'string'
-        else:
-            if hasattr(response_type, '_name') and response_type._name == "AsyncGenerator":
-                response_type = response_type.__args__[1]
-            del annotations['return']
-        if api.__code__.co_argcount != len(annotations):
+        arg_count = api.__code__.co_argcount
+        api = API(api, method=method, content_type=content_type)
+        if arg_count != len(api.arg_annotations):
             raise Exception(f"Not all arguments of '{api.__module__}.{api.__name__}' have type hints.  This is required for web_api")
         if streamed_resp is True:
             callback = 'onreceive'
@@ -262,19 +253,19 @@ class JavascriptGenerator:
             callback = 'onsuccess'
             state = 'XMLHttpRequest.DONE'
         cls._generate_docs(out, api, tab, callback=callback)
-        argnames = [param for param in annotations.keys()]
-        out.write(f"{tab}static {api.__name__}({callback}, onerror, {', '.join(argnames)}) {{\n".encode(cls.ENCODING))
+        argnames = [param for param in api.arg_annotations.keys()]
+        out.write(f"{tab}static {api.name}({callback}, onerror, {', '.join(argnames)}) {{\n".encode(cls.ENCODING))
         if method == RestMethod.GET:
             cls._generate_get_request(out=out, route=route, tab=tab, content_type=content_type,
-                                      annotations=annotations,
-                                      response_type=response_type,
+                                      annotations=api.arg_annotations,
+                                      response_type=api.return_type,
                                       state=state,
                                       callback=callback,
                                       streamed_response=streamed_resp)
         else:
             cls._generate_post_request(out=out, route=route, tab=tab, content_type=content_type,
-                                       annotations=annotations,
-                                       response_type=response_type,
+                                       annotations=api.arg_annotations,
+                                       response_type=api.return_type,
                                        state=state,
                                        callback=callback,
                                        streamed_response=streamed_resp)

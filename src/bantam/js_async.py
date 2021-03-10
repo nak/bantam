@@ -62,7 +62,7 @@ from typing import Coroutine, Callable, Awaitable, Union
 from typing import Dict, Tuple, List, IO, Type
 from urllib.request import Request
 
-from bantam.decorators import RestMethod, AsyncChunkIterator, AsyncLineIterator
+from bantam.api import AsyncChunkIterator, AsyncLineIterator, API, APIDoc, RestMethod
 
 AsyncApi = Callable[[Request], Awaitable[Union[Response, StreamResponse]]]
 
@@ -303,7 +303,7 @@ class bantam {
         :param skip_html: whether to skip entries of content type 'text/html' as these are generally not used in direct
            javascript calls
         """
-        from bantam.web import WebApplication
+        from bantam.http import WebApplication
         namespaces = cls.Namespace()
         for route, api in WebApplication.callables_get.items():
             content_type = WebApplication.content_type.get(route)
@@ -340,68 +340,6 @@ class bantam {
             process_namespace(namespace, name)
 
     @classmethod
-    def _generate_docs(cls, out: IO, api: AsyncApi, tab) -> None:
-        def prefix(text: str, tab: str):
-            new_text = ""
-            for line in text.splitlines():
-                new_text += tab + line.strip() + '\n'
-            return new_text
-        basic_doc_parts = prefix(api.__doc__ or "<<No API documentation provided>>", tab).split(':param', maxsplit=1)
-        if len(basic_doc_parts) == 1:
-            basic_doc = basic_doc_parts[0]
-            params_doc = ""
-        else:
-            basic_doc, params_doc = basic_doc_parts
-            params_doc = ':param ' + params_doc
-
-        annotations = dict(api.__annotations__)
-        name_map = {'str': 'string', 'bool': 'boolean', 'int': 'number [int]', 'float': 'number [float]'}
-        type_name = None
-        for name, typ in annotations.items():
-            try:
-                if hasattr(typ, 'deserialize'):
-                    type_name = f"str serialization of {name_map.get(type_name, type_name)}"
-                elif hasattr(typ, '_name') and typ._name == 'AsyncGenerator':
-                    if name != 'return':
-                        type_name = 'async generator of byte data'
-                elif str(typ).startswith('typing.Union') and typ.__args__[1] == type(None):
-                    type_name = name_map.get(typ.__args__[0].__name__, type_name)
-                    type_name = f"{{{type_name} [optional]}}"
-                else:
-                    type_name = typ.__name__
-            except Exception:
-                type_name = "<<unrecognized>>"
-            if type_name:
-                type_name = name_map.get(type_name, type_name)
-                if name == 'return':
-                    params_doc = re.sub(f":return*:", f"@return {{{{{type_name}}}}}", params_doc)
-                else:
-                    params_doc = re.sub(f":param *{name} *:", f"@param {{{{{type_name}}}}} {name}", params_doc)
-            else:
-                params_doc = re.sub(f":param *{name}.*", "@REMOVE@", params_doc)
-        lines = params_doc.splitlines()
-        params_doc = ""
-        remove_line = False
-        # remove parameter that has been moved as a return callback function and documented as such:
-        for line in lines:
-            if '@REMOVE@' in line:
-                remove_line = True  # start of removal until next @param line is reached
-            elif not remove_line:
-                params_doc += f"{line}\n"
-            elif '@param' in line:
-                remove_line = False
-                params_doc += f"{line}\n"
-
-        docs = f"""\n{tab}/*
-{tab}{basic_doc.strip()}
-{tab}{params_doc.strip()}
-{tab}*/
-"""
-        lines = [line for line in docs.splitlines() if not line.strip().startswith(':return')]
-        docs = '\n'.join(lines) + '\n'
-        out.write(docs.encode(cls.ENCODING))
-
-    @classmethod
     def _generate_request(cls, out: IO, route: str, method: RestMethod,
                           api: AsyncApi, tab: str, content_type: str):
         annotations = dict(api.__annotations__)
@@ -418,8 +356,17 @@ class bantam {
 
         offset = 1 if 'self' in api.__code__.co_varnames else 0
         if api.__code__.co_argcount - offset != len(annotations):
-            raise Exception(f"Not all arguments of '{api.__module__}.{api.__name__}' have type hints.  This is required for web_api")
-        cls._generate_docs(out, api, tab)
+            raise Exception(
+                f"Not all arguments of '{api.__module__}.{api.__name__}' have type hints.  This is required for web_api"
+            )
+        docs = APIDoc()
+        try:
+            api_doc = docs.generate(api=API(api, method=method, content_type=content_type),
+                                    flavor=APIDoc.Flavor.JAVASCRIPT, indent=tab)
+        except Exception as e:
+            api_doc = f"/**\n<<Unable to generate>> {e}\n**/\n"
+        out.write(b'\n')
+        out.write(api_doc.encode('utf-8'))
         argnames = list(annotations.keys())
         out.write(f"{tab}static async{'*' if streamed_resp else ''} {api.__name__}({', '.join(argnames)}) {{\n".encode(cls.ENCODING))
         async_annotations = [a for a in annotations.items() if a[1] in (AsyncChunkIterator, AsyncLineIterator)]

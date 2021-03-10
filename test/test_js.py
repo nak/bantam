@@ -12,8 +12,9 @@ import pytest
 from aiohttp.web_request import Request
 from aiohttp.web_response import Response
 
-from bantam.decorators import web_api, RestMethod, AsyncLineIterator
-from bantam.web import WebApplication
+from bantam.decorators import web_api
+from bantam.api import AsyncLineIterator, RestMethod
+from bantam.http import WebApplication
 
 
 class RestAPIExample:

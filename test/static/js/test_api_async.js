@@ -72,9 +72,6 @@ class TestRunner{
             this.test_api_post_basic,
             this.test_api_post_basic_optional_param_value,
             this.test_api_post_basic_error_not_all_required_params,
-            this.test_api_get_streamed_response,
-            this.test_api_get_streamed_response_text,
-            this.test_api_post_streamed_response,
             this.test_api_post_streamed_response_text,
             this.test_api_post_streamed_req_resp
             ];
@@ -205,31 +202,6 @@ class TestRunner{
         }  catch (error){
             self.onerror(testname, error.status, JSON.stringify(error));
         }
-    }
-
-    async test_api_post_streamed_response(testname){
-        let self = this;
-        let api = bantam.test.test_js_async.ClassRestStaticExample;
-        let int_vals = [];
-        let onreceive = function(int_val, is_done){
-            int_vals.push(int_val);
-            if (is_done){
-                let is_valid = true;
-                for (var i = 0; i < int_vals.length; ++i){
-                    if (i != int_vals[i]){
-                        is_valid = false;
-                    }
-                }
-                if (!is_valid || int_vals.length != 10){
-                    self.onerror(testname, -1, "Response not a stream of successive integers from 0 to 9 as expected: "
-                     + JSON.stringify(int_vals));
-                } else {
-                    self.onsuccess(testname);
-                }
-            }
-        }
-        api.api_post_stream(onreceive, function(code, reason){self.onerror(testname, code, reason)},
-             98, false, 1239929.04, "string value");
     }
 
     async test_api_post_streamed_response_text(testname){

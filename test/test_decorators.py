@@ -1,8 +1,8 @@
-from typing import Any, Type, Dict, AsyncGenerator
+from typing import Any, Type, Dict
 
 import pytest
-from bantam.decorators import _convert_request_param, _invoke_get_api_wrapper, _invoke_post_api_wrapper, \
-    AsyncChunkIterator, AsyncLineIterator
+from bantam.decorators import _convert_request_param, _invoke_get_api_wrapper, _invoke_post_api_wrapper
+from bantam.api import AsyncChunkIterator, AsyncLineIterator
 
 
 class Deserialiazlbe:

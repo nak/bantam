@@ -79,11 +79,14 @@ payload of the request (not query parameters) as a simple JSON dictionary.
     Thus, each pair of class/method declared as a @web_api must be unique, including across differing modules.
 
 """
+import os
+import shutil
 import sys
 from pathlib import Path
 from ssl import SSLContext
 from typing import Optional, Union, Dict, Callable, Iterable, Mapping, Any, Awaitable
 
+import docutils.core
 from aiohttp import web
 from aiohttp.abc import Request, StreamResponse
 from aiohttp.web import Application, HostSequence
@@ -91,14 +94,12 @@ from aiohttp.web_routedef import UrlDispatcher
 from aiohttp.web_app import _Middleware
 
 from .decorators import (
-    AsyncChunkIterator,
-    AsyncLineIterator,
     PreProcessor,
     PostProcessor,
-    RestMethod,
     web_api,
     WebApi,
 )
+from .api import AsyncChunkIterator, AsyncLineIterator, RestMethod, API, APIDoc
 from .js_async import JavascriptGeneratorAsync
 from .js import JavascriptGenerator
 
@@ -150,6 +151,27 @@ class WebApplication:
                  debug: Any = ..., ) -> None:  # mypy doesn't support ellipsis
         if static_path is not None and not Path(static_path).exists():
             raise ValueError(f"Provided static path, {static_path} does not exist")
+        if static_path:
+            rst_out = static_path.joinpath('_developer_docs.rst')
+            html_out = static_path.joinpath('_developer_docs.html')
+            with open(rst_out, 'w') as out:
+                out.write("REST API DOCUMENTATION\n")
+                out.write("======================\n\n")
+
+                out.write("\nReST Methods\n")
+                out.write("============\n")
+                for route, api in WebApplication.callables_get.items():
+                    content_type = WebApplication.content_type.get(route)
+                    api = API(api, method=RestMethod.GET, content_type=content_type)
+                    out.write(APIDoc.generate(api=api, flavor=APIDoc.Flavor.REST))
+                    out.write("\n")
+            if html_out.exists():
+                os.remove(html_out)
+            docutils.core.publish_file(
+                source_path=rst_out,
+                destination_path=html_out,
+                writer_name="html"
+            )
         if js_bundle_name:
             if static_path is None:
                 raise ValueError("If 'js_bundle_name' is specified, 'static_path' cannot be None")

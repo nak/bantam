@@ -2,7 +2,8 @@ import asyncio
 from pathlib import Path
 from typing import Optional, AsyncGenerator
 
-from bantam.decorators import web_api, RestMethod, AsyncLineIterator
+from bantam.decorators import web_api
+from bantam.api import AsyncLineIterator, RestMethod
 from bantam.pythonclient import PythonClientGenerator
 
 
