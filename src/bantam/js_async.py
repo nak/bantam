@@ -334,10 +334,10 @@ class bantam {
                 tab = tab[:-3]
                 out.write(f"}};\n".encode(cls.ENCODING))  # for class end
 
+        ni = '\n'
+        out.write(f"{ni}{cls.BANTAM_CORE};{ni}".encode(cls.ENCODING))
         for name, namespace in namespaces.child_namespaces.items():
             name = "bantam." + name
-            ni = '\n'
-            out.write(f"{ni}{cls.BANTAM_CORE};{ni}".encode(cls.ENCODING))
             out.write(f"{name} = class {{}};\n".encode(cls.ENCODING))
             tab += "   "
             process_namespace(namespace, name)
@@ -358,7 +358,7 @@ class bantam {
             del annotations['return']
 
         offset = 1 if 'self' in api.__code__.co_varnames else 0
-        if api.__code__.co_argcount - offset != len(annotations):
+        if not api.__name__.startswith('_') and api.__code__.co_argcount - offset != len(annotations):
             raise Exception(
                 f"Not all arguments of '{api.__module__}.{api.__name__}' have type hints.  This is required for web_api"
             )

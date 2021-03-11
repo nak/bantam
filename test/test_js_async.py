@@ -183,6 +183,7 @@ class TestJavascriptGenerator:
 
         async def launch_browser():
             await asyncio.sleep(2.0)
+            browser = None
             try:
                 browser = webbrowser.get("chrome")
             except Exception:
@@ -201,7 +202,7 @@ class TestJavascriptGenerator:
             return result
 
         try:
-            completed, _ = await asyncio.wait([app.start(), launch_browser()], timeout=100, return_when=asyncio.FIRST_COMPLETED)
+            completed, _ = await asyncio.wait([app.start(), launch_browser()], timeout=1000000, return_when=asyncio.FIRST_COMPLETED)
             results = [c.result() for c in completed if c is not None]
         except Exception as e:
             assert False, f"Exception processing javascript results: {traceback.format_exc()}"

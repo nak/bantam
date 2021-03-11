@@ -178,18 +178,8 @@ class WebApplication:
         if static_path is not None and not Path(static_path).exists():
             raise ValueError(f"Provided static path, {static_path} does not exist")
         self._static_path = static_path
-        if js_bundle_name:
-            if static_path is None:
-                raise ValueError("If 'js_bundle_name' is specified, 'static_path' cannot be None")
-            static_path = Path(static_path)
-            js_path = static_path.joinpath('js')
-            if not js_path.exists():
-                js_path.mkdir(parents=True)
-            with open(js_path.joinpath(js_bundle_name + ".js"), 'bw') as out:
-                if using_async:
-                    JavascriptGeneratorAsync.generate(out=out, skip_html=False)
-                else:
-                    JavascriptGenerator.generate(out=out, skip_html=False)
+        self._js_bundle_name = js_bundle_name
+        self._using_async = using_async
         self._web_app = Application(handler_args=handler_args,
                                     client_max_size=client_max_size, debug=debug)
         for route, api_get in self.routes_get.items():
@@ -363,6 +353,19 @@ class WebApplication:
                 continue
             mod = importlib.import_module(method.__module__)
             self._process_module_classes(mod, method)
+
+        if self._js_bundle_name:
+            if self._static_path is None:
+                raise ValueError("If 'js_bundle_name' is specified, 'static_path' cannot be None")
+            static_path = Path(self._static_path)
+            js_path = static_path.joinpath('js')
+            if not js_path.exists():
+                js_path.mkdir(parents=True)
+            with open(js_path.joinpath(self._js_bundle_name + ".js"), 'bw') as out:
+                if self._using_async:
+                    JavascriptGeneratorAsync.generate(out=out, skip_html=False)
+                else:
+                    JavascriptGenerator.generate(out=out, skip_html=False)
         self._started = True
         if self._static_path:
             with suppress(Exception):
