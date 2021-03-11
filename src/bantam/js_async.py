@@ -83,6 +83,9 @@ class bantam {
         for (var param in param_map){
              if (typeof param_map[param] !== 'undefined'){
                  let value = JSON.stringify(param_map[param])
+                 if (typeof value === 'undefined'){
+                    continue;
+                 }
                  if (value[0] === '"'){
                     value = value.slice(1, -1)
                  }
@@ -198,9 +201,9 @@ class bantam {
         let reader = await body.body.getReader();
         while (true){
             if (body.status < 200 || body.status > 299){
-                let statusBody = await result.body.getReader().read();
-                statusBody = result.statusText + ": " + new TextDecoder().decode(statusBody.value);
-                let stats = {status: result.status, statusText: statusBody};
+                let statusBody = await reader.read();
+                statusBody = body.statusText + ": " + new TextDecoder().decode(statusBody.value);
+                let stats = {status: body.status, statusText: statusBody};
                 throw stats;
             }
             let resp = await reader.read();            

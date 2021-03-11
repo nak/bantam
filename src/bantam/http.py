@@ -12,7 +12,7 @@ Getting Started
 Let's look at setting up a simple WebApplication on your localhost:
 
 >>> import asyncio
-... from bantam.web import web_api, RestMethod, WebApplication
+... from bantam.http import web_api, RestMethod, WebApplication
 ...
 ... class Greetings:
 ...
@@ -79,20 +79,40 @@ payload of the request (not query parameters) as a simple JSON dictionary.
     Thus, each pair of class/method declared as a @web_api must be unique, including across differing modules.
 
 """
+import asyncio
+import docutils.core
+import importlib
+import inspect
+import json
 import os
-import shutil
 import sys
+import types
+
+from aiohttp import web
+from aiohttp.web import (
+    Application,
+    HostSequence,
+    Request,
+    Response,
+    StreamResponse,
+)
+from contextlib import suppress
 from pathlib import Path
 from ssl import SSLContext
-from typing import Optional, Union, Dict, Callable, Iterable, Mapping, Any, Awaitable
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Dict,
+    List,
+    Mapping,
+    Optional,
+    Union,
+    Type,
+)
 
-import docutils.core
-from aiohttp import web
-from aiohttp.abc import Request, StreamResponse
-from aiohttp.web import Application, HostSequence
-from aiohttp.web_routedef import UrlDispatcher
-from aiohttp.web_app import _Middleware
-
+from . import HTTPException
+from .conversions import from_str, to_str
 from .decorators import (
     PreProcessor,
     PostProcessor,
@@ -116,6 +136,7 @@ def wrap(app, op):
     return wrapper
 
 
+# noinspection PyUnresolvedReferences
 class WebApplication:
     """
     Main class for running a WebApplication server. See the docs for *aiohttp* for information on the various
@@ -126,6 +147,13 @@ class WebApplication:
        will be generated, if provided
     """
     _context: Dict[Awaitable, Request] = {}
+    _class_instance_methods: Dict[Type, List[Callable[..., Any]]] = {}
+    _instance_methods_class_map: Dict[Callable[..., Any], Type] = {}
+    _instance_methods: List[Callable[..., Any]] = []
+    _all_methods: List[Callable[..., Any]] = []
+
+    class ObjectRepo:
+        instances: Dict[str, Any] = {}
 
     class DuplicateRoute(Exception):
         """
@@ -143,35 +171,13 @@ class WebApplication:
                  *,
                  static_path: Optional[PathLike] = None,
                  js_bundle_name: Optional[str] = None,
-                 router: Optional[UrlDispatcher] = None,
-                 middlewares: Iterable[_Middleware] = (),
                  handler_args: Optional[Mapping[str, Any]] = None,
                  client_max_size: int = MAX_CLIENTS,
                  using_async: bool = True,
                  debug: Any = ..., ) -> None:  # mypy doesn't support ellipsis
         if static_path is not None and not Path(static_path).exists():
             raise ValueError(f"Provided static path, {static_path} does not exist")
-        if static_path:
-            rst_out = static_path.joinpath('_developer_docs.rst')
-            html_out = static_path.joinpath('_developer_docs.html')
-            with open(rst_out, 'w') as out:
-                out.write("REST API DOCUMENTATION\n")
-                out.write("======================\n\n")
-
-                out.write("\nReST Methods\n")
-                out.write("============\n")
-                for route, api in WebApplication.callables_get.items():
-                    content_type = WebApplication.content_type.get(route)
-                    api = API(api, method=RestMethod.GET, content_type=content_type)
-                    out.write(APIDoc.generate(api=api, flavor=APIDoc.Flavor.REST))
-                    out.write("\n")
-            if html_out.exists():
-                os.remove(html_out)
-            docutils.core.publish_file(
-                source_path=rst_out,
-                destination_path=html_out,
-                writer_name="html"
-            )
+        self._static_path = static_path
         if js_bundle_name:
             if static_path is None:
                 raise ValueError("If 'js_bundle_name' is specified, 'static_path' cannot be None")
@@ -184,7 +190,7 @@ class WebApplication:
                     JavascriptGeneratorAsync.generate(out=out, skip_html=False)
                 else:
                     JavascriptGenerator.generate(out=out, skip_html=False)
-        self._web_app = Application(router=router, middlewares=middlewares, handler_args=handler_args,
+        self._web_app = Application(handler_args=handler_args,
                                     client_max_size=client_max_size, debug=debug)
         for route, api_get in self.routes_get.items():
             self._web_app.router.add_get(route, wrap(self, api_get))
@@ -195,6 +201,81 @@ class WebApplication:
         self._started = False
         self._preprocessor: Optional[PreProcessor] = None
         self._postprocessor: Optional[PostProcessor] = None
+
+    def _generate_rest_docs(self):
+        rst_out = self._static_path.joinpath('_developer_docs.rst')
+        html_out = self._static_path.joinpath('_developer_docs.html')
+
+        def document_class(clazz, out):
+            docs = clazz.__doc__ or """<<no documentation provided>>"""
+            title = f"Resource: {clazz.__name__}"
+            out.write(f"""
+{title}
+{'-'*len(title)}
+
+{docs.strip()}
+""")
+
+        with open(rst_out, 'w') as out:
+            out.write("REST API DOCUMENTATION\n")
+            out.write("======================\n\n")
+
+            out.write("\nReST Resources and Methods")
+            out.write("\n==========================\n")
+            resources_seen = set()
+            for route, api in sorted(list(WebApplication.callables_get.items()) +
+                                     list(WebApplication.callables_post.items())):
+                resource, _ = route[1:].split('/', maxsplit=1)
+                if resource not in resources_seen:
+                    resources_seen.add(resource)
+                    for clazz in WebApplication._class_instance_methods:
+                        if clazz.__name__ == resource:
+                            document_class(clazz, out)
+                content_type = WebApplication.content_type.get(route)
+                api = API(api, method=RestMethod.GET, content_type=content_type)
+                out.write(APIDoc.generate(api=api, flavor=APIDoc.Flavor.REST))
+                out.write("\n")
+        if html_out.exists():
+            os.remove(html_out)
+        css = """
+        
+        h2{
+            margin: 1em 0 .6em 0;
+            font-weight: normal;
+            color: black;
+            font-family: 'Hammersmith One', sans-serif;
+            text-shadow: 0 -3px 0 rgba(255,255,255,0.8);
+            position: relative;
+            font-size: 30px;
+            line-height: 40px;
+            background-color: lightgrey;
+            font-size:150%
+        }
+
+        h3 {
+            margin: 1em 0 0.5em 0;
+            color: #343434;
+            font-size: 22px;
+            line-height: 40px;
+            font-weight: normal;
+            font-family: 'Orienta', sans-serif;
+            letter-spacing: 1px;
+            font-style: italic;font-size: 90%; background-color: #fed8b1;
+        }
+        
+        """
+        css_dir: Path = self._static_path.joinpath('css')
+        if not css_dir.exists():
+            css_dir.mkdir(parents=True)
+        css_file = css_dir.joinpath('docs.css')
+        with open(css_file, 'w') as css_out:
+            css_out.write(css)
+        docutils.core.publish_file(
+            source_path=rst_out,
+            destination_path=html_out,
+            writer_name="html",
+            settings_overrides={'stylesheet_path': ','.join(["html4css1.css", str(css_file)])}
+        )
 
     def set_preprocessor(self, processor: PreProcessor):
         self._preprocessor = processor
@@ -223,8 +304,10 @@ class WebApplication:
         """
         if route in WebApplication.routes_get or route in WebApplication.routes_post:
             existing = WebApplication.callables_get.get(route) or WebApplication.callables_post.get(route)
-            raise WebApplication.DuplicateRoute(f"Route '{route}' associated with {async_web_api.__module__}.{async_web_api.__name__}"
-                                                f" already exists here: {existing.__module__}.{existing.__name__} ")
+            raise WebApplication.DuplicateRoute(
+                f"Route '{route}' associated with {async_web_api.__module__}.{async_web_api.__name__}"
+                f" already exists here: {existing.__module__}.{existing.__name__} "
+            )
         WebApplication.routes_get[route] = async_handler
         WebApplication.callables_get[route] = async_web_api
         WebApplication.content_type[route] = content_type
@@ -236,8 +319,8 @@ class WebApplication:
         rarely if ever called directly
 
         :param route: route to register under
-        :param async_handler: the raw handler for handling an incoming Request and returning a Response
-        :param async_web_api: the high-level deocrated web_api that will be invoked by the handler
+        :param async_method: the raw handler for handling an incoming Request and returning a Response
+        :param func: the high-level deocrated web_api that will be invoked by the handler
         :param content_type: http content-type header value
         """
         if route in WebApplication.routes_post or route in WebApplication.routes_get:
@@ -275,7 +358,15 @@ class WebApplication:
             on Windows.
         """
         from aiohttp.web import _run_app as web_run_app
+        for method in self._all_methods:
+            if method.__name__ in ['_release']:
+                continue
+            mod = importlib.import_module(method.__module__)
+            self._process_module_classes(mod, method)
         self._started = True
+        if self._static_path:
+            with suppress(Exception):
+                self._generate_rest_docs()
         await web_run_app(app=self._web_app, host=host, port=port, path=path, shutdown_timeout=shutdown_timeout,
                           ssl_context=ssl_context, backlog=backlog, handle_signals=handle_signals,
                           reuse_address=reuse_address, reuse_port=reuse_port)
@@ -288,6 +379,7 @@ class WebApplication:
             await self._web_app.shutdown()
             self._started = False
 
+    # noinspection PyProtectedMember
     @classmethod
     def get_context(cls):
         i = 1
@@ -300,3 +392,357 @@ class WebApplication:
         except IndexError:
             return None
         return WebApplication._context[frame].headers
+
+    @classmethod
+    def _process_module_classes(cls, mod: types.ModuleType, method: WebApi):
+        def process_class(clazz: Any):
+            if hasattr(clazz, '_release') or hasattr(clazz, '_create'):
+                raise TypeError("Classes with @web_api applied cannot have methods named _release nor _create")
+
+            # noinspection PyDecorator
+            @staticmethod
+            async def _create(*args, **kargs) -> str:
+                instance = clazz(*args, **kargs)
+                self_id = str(instance).split(' ', maxsplit=1)[-1][:-1]
+                cls.ObjectRepo.instances[self_id] = instance
+                return self_id
+
+            clazz._create = _create
+            clazz._create.__annotations__ = clazz.__init__.__annotations__
+            clazz._create.__annotations__['return'] = str
+            clazz._create.__doc__ = clazz.__init__.__doc__ if hasattr(clazz, '__init__') else f"""
+                Create an instance of {clazz.__name__} on server, returning a unique string id for the instnace.  
+                The instance will remain active until /{clazz.__name__}/_release is invoked.  The sting is used for 
+                instance-based ReST methods to act on the created instance on the server.
+
+                :return: unqiue string id of instance created
+                """
+            clazz._create.__qualname__ = f"{clazz.__name__}._create"
+            # noinspection PyProtectedMember
+            cls._func_wrapper(clazz._create, is_instance_method=False, method=RestMethod.GET, content_type="text/plain")
+
+            async def _release(self) -> None:
+                """
+                Release/close an instance on the server that was created through invocation of _create for the
+                associated resource
+                """
+                self_id = str(self).split(' ', maxsplit=1)[-1][:-1]
+                if self_id in cls.ObjectRepo.instances:
+                    del cls.ObjectRepo.instances[self_id]
+
+            clazz._release = _release
+            clazz._release.__doc__ = _release.__doc__
+            clazz._release.__qualname__ = f"{clazz.__name__}._release"
+
+            # noinspection PyProtectedMember
+            cls._func_wrapper(clazz._release, is_instance_method=True, method=RestMethod.GET, content_type="text/plain")
+
+        for clazz in [cls for _, cls in inspect.getmembers(mod) if inspect.isclass(cls)]:
+            method_found = any([item for item in inspect.getmembers(clazz) if item[1] == method])
+            if method_found and method in cls._instance_methods:
+                if clazz not in cls._class_instance_methods:
+                    process_class(clazz)
+                cls._class_instance_methods.setdefault(clazz, []).append(method)
+                cls._instance_methods_class_map[method] = clazz
+                break
+            elif method_found and method in cls._all_methods:
+                cls._class_instance_methods.setdefault(clazz, [])  # create an empty list of instance methods at least
+                break
+
+    @classmethod
+    def _func_wrapper(cls, func: WebApi, is_instance_method: bool,
+                      method: RestMethod,
+                      content_type: str,
+                      preprocess: Optional[PreProcessor] = None,
+                      postprocess: Optional[PostProcessor] = None) -> WebApi:
+        """
+        Wraps a function as called from decorators.web_api to set up logic to invoke get or post requests
+
+        :param func: function to wrap
+        :param clazz: if function is instance method, provide owning class, otherwise None
+        :return: function back, having processed as a web api and registered the route
+        """
+        if is_instance_method:
+            if not inspect.iscoroutinefunction(func) and not inspect.isasyncgenfunction(func):
+                raise ValueError("the @web_api decorator can only be applied to classes with public "
+                                 f"methods that are coroutines (async); see {func.__qualname__}")
+            cls._instance_methods.append(func)
+        else:
+            if not inspect.iscoroutinefunction(func) and not inspect.isasyncgenfunction(func):
+                raise ValueError("the @web_api decorator can only be applied to methods that are coroutines (async)")
+        cls._all_methods.append(func)
+        name = func.__qualname__.replace('__init__', 'create').replace('._release', '.release')
+        name_parts = name.split('.')[-2:]
+        route = '/' + '/'.join(name_parts)
+
+        async def invoke(app: WebApplication, request: Request):
+            nonlocal preprocess, postprocess
+            try:
+                preprocess = preprocess or app.preprocessor
+                try:
+                    addl_args = (preprocess(request) or {}) if preprocess else {}
+                except Exception as e:
+                    return Response(status=400, text=f"Error in preprocessing request: {e}")
+                if method == RestMethod.GET:
+                    # noinspection PyProtectedMember
+                    response = await cls._invoke_get_api_wrapper(
+                        func, content_type=content_type, request=request, clazz=invoke.clazz, **addl_args
+                    )
+                elif method == RestMethod.POST:
+                    # noinspection PyProtectedMember
+                    response = await cls._invoke_post_api_wrapper(
+                        func, content_type=content_type, request=request, clazz=invoke.clazz, **addl_args
+                    )
+                else:
+                    raise ValueError(f"Unknown method {method} in @web-api")
+                try:
+                    postprocess = postprocess or app.postprocessor
+                    postprocess(response) if postprocess else response
+                except Exception as e:
+                    return Response(status=400, text=f"Error in post-processing of response: {e}")
+                return response
+            except Exception as e:
+                return Response(status=500, text=f"Server error: {e}")
+
+        invoke.clazz = WebApplication._instance_methods_class_map.get(func) if is_instance_method else None
+        if method == RestMethod.GET:
+            WebApplication.register_route_get(route, invoke, func, content_type)
+        elif method == RestMethod.POST:
+            WebApplication.register_route_post(route, invoke, func, content_type)
+        else:
+            raise ValueError(f"Unknown method {method} in @web-api")
+        return func
+
+    @classmethod
+    async def _invoke_get_api_wrapper(cls, func: WebApi, content_type: str, request: Request, clazz: Any,
+                                      **addl_args: Any) -> Union[Response, StreamResponse]:
+        """
+        Invoke the underlying GET web API from given request.  Called as part of setup in cls._func_wrapper
+
+        :param func:  async function to be called
+        :param content_type: http header content-type
+        :param request: request to be processed
+        :return: http response object
+        """
+        # noinspection PyUnresolvedReferences,PyProtectedMember
+        cls._context[sys._getframe(0)] = request
+        api = API(func, method=RestMethod.GET, content_type=content_type)
+        if api.has_streamed_request:
+            raise TypeError("GET web_api methods does not support streaming requests")
+        try:
+            encoding = 'utf-8'
+            items = content_type.split(';')
+            for item in items:
+                item = item.lower()
+                if item.startswith('charset='):
+                    encoding = item.replace('charset=', '')
+            # report first param that doesn't match the Python signature:
+            for k in [p for p in request.query if p not in api.arg_annotations]:
+                return Response(
+                    status=400,
+                    text=f"No such parameter or missing type hint for param {k} in method {func.__qualname__}"
+                )
+
+            # convert incoming str values to proper type:
+            kwargs = {k: _convert_request_param(v, api.arg_annotations[k]) for k, v in request.query.items()}
+            if addl_args:
+                kwargs.update(addl_args)
+            if clazz:
+                # we are invoking a class method, and need to lookup instance
+                self_id = kwargs.get('self')
+                if self_id is None:
+                    raise ValueError(
+                        "A self request parameter is needed. No instance provided for call to instance method")
+                instance = cls.ObjectRepo.instances.get(self_id)
+                if instance is None:
+                    raise ValueError(f"No instance found for request with 'self' id of {self_id}")
+                del kwargs['self']
+                result = func(instance, **kwargs)
+            else:
+                # call the underlying function:
+                result = func(**kwargs)
+            if inspect.isasyncgen(result):
+                #################
+                #  streamed response through async generator:
+                #################
+                # underlying function has yielded a result rather than turning
+                # process the yielded value and allow execution to resume from yielding task
+                content_type = "text-streamed; charset=x-user-defined"
+                response = StreamResponse(status=200, reason='OK', headers={'Content-Type': content_type})
+                await response.prepare(request)
+                try:
+                    # iterate to get the one (and hopefully only) yielded element:
+                    # noinspection PyTypeChecker
+                    async for res in result:
+                        serialized = _serialize_return_value(res, encoding)
+                        if not isinstance(res, bytes):
+                            serialized += b'\n'
+                        await response.write(serialized)
+                except Exception as e:
+                    print(str(e))
+                await response.write_eof()
+                return response
+            else:
+                #################
+                #  regular response
+                #################
+                result = _serialize_return_value(await result, encoding)
+                return Response(status=200, body=result if result is not None else b"Success",
+                                content_type=content_type)
+        except TypeError as e:
+            return Response(status=400, text=f"Improperly formatted query: {str(e)}")
+        except HTTPException as e:
+            return Response(status=e.status_code, text=str(e))
+        except Exception as e:
+            return Response(status=500, text=str(e))
+        finally:
+            # noinspection PyUnresolvedReferences,PyProtectedMember
+            del cls._context[sys._getframe(0)]
+
+    @classmethod
+    async def _invoke_post_api_wrapper(cls, func: WebApi, content_type: str, request: Request, clazz: Any,
+                                       **addl_args: Any) -> Union[Response, StreamResponse]:
+        """
+        Invoke the underlying POST web API from given request. Called as part of setup in cls._func_wrapper
+
+        :param func:  async function to be called
+        :param content_type: http header content-type
+        :param request: request to be processed
+        :return: http response object
+        """
+        async def line_by_line_response(req: Request):
+            reader = req.content
+            chunk = True
+            while not reader.is_eof() and chunk:
+                chunk = await reader.readline()
+                yield chunk
+            last = await reader.readline()
+            if last:
+                yield last
+
+        def streamed_bytes_arg_value(req: Request):
+            async def iterator(packet_size: int):
+                reader = req.content
+                chunk = True
+                while not reader.is_eof() and chunk:
+                    chunk = await reader.read(packet_size)
+                    yield chunk
+
+            return iterator
+
+        # noinspection PyUnresolvedReferences,PyProtectedMember
+        cls._context[sys._getframe(0)] = request
+        encoding = 'utf-8'
+        items = content_type.split(';')
+        for item in items:
+            if item.startswith('charset='):
+                encoding = item.replace('charset=', '')
+        if not request.can_read_body:
+            raise TypeError("Cannot read body for request in POST operation")
+        api = API(func, method=RestMethod.POST, content_type=content_type)
+        try:
+            kwargs: Dict[str, Any] = {}
+            if api.has_streamed_request:
+                key, typ = api.async_arg_annotations.items()[0]
+                if typ == bytes:
+                    kwargs = {key: await request.read()}
+                elif typ == AsyncLineIterator:
+                    kwargs = {key: line_by_line_response(request)}
+                elif typ == AsyncChunkIterator:
+                    kwargs = {key: streamed_bytes_arg_value(request)}
+                kwargs.update({k: _convert_request_param(v, api.synchronous_arg_annotations[k])
+                               for k, v in request.query.items() if k in api.synchronous_arg_annotations})
+            else:
+                # treat payload as json string:
+                bytes_response = await request.read()
+                json_dict = json.loads(bytes_response.decode('utf-8'))
+                for k in [p for p in json_dict if p not in api.arg_annotations]:
+                    return Response(
+                        status=400,
+                        text=f"No such parameter or missing type hint for param {k} in method {func.__qualname__}"
+                    )
+
+                # convert incoming str values to proper type:
+                kwargs.update(dict(json_dict))
+            # call the underlying function:
+            if addl_args:
+                kwargs.update(addl_args)
+            if clazz:
+                self_id = kwargs.get('self')
+                if self_id is None:
+                    raise ValueError("No instance provided for call to instance method")
+                instance = cls.ObjectRepo.instances.get(self_id)
+                if instance is None:
+                    raise ValueError(f"No instance id found for request {self_id}")
+                del kwargs['self']
+                awaitable = func(instance, **kwargs)
+            else:
+                awaitable = func(**kwargs)
+            if inspect.isasyncgen(awaitable):
+                #################
+                #  streamed response through async generator:
+                #################
+                # underlying function has yielded a result rather than turning
+                # process the yielded value and allow execution to resume from yielding task
+                async_q = asyncio.Queue()
+                content_type = "text/streamed; charset=x-user-defined"
+                response = StreamResponse(status=200, reason='OK', headers={'Content-Type': content_type})
+                await response.prepare(request)
+                try:
+                    # iterate to get the one (and hopefully only) yielded element:
+                    # noinspection PyTypeChecker
+                    async for res in awaitable:
+                        serialized = _serialize_return_value(res, encoding)
+                        if not isinstance(res, bytes):
+                            serialized += b'\n'
+                        await response.write(serialized)
+                except Exception as e:
+                    print(str(e))
+                    await async_q.put(None)
+                await response.write_eof()
+            else:
+                #################
+                #  regular response
+                #################
+                result = _serialize_return_value(await awaitable, encoding)
+                return Response(status=200, body=result if result is not None else b"Success",
+                                content_type=content_type)
+
+        except TypeError as e:
+            return Response(status=400, text=f"Improperly formatted query: {str(e)}")
+        except Exception as e:
+            return Response(status=500, text=str(e))
+        finally:
+            # noinspection PyUnresolvedReferences,PyProtectedMember
+            del cls._context[sys._getframe(0)]
+
+
+def _convert_request_param(value: str, typ: Type) -> Any:
+    """
+    Convert rest request string value for parameter to given Python type, returning an instance of that type
+
+    :param value: value to convert
+    :param typ: Python Type to convert to
+    :return: converted instance, of the given type
+    :raises: TypeError if value can not be converted/deserialized
+    """
+    try:
+        return from_str(value, typ)
+    except Exception as e:
+        raise TypeError(f"Converting web request string to Python type {typ}: {e}")
+
+
+def _serialize_return_value(value: Any, encoding: str) -> bytes:
+    """
+    Serialize a Python value into bytes to return through a Rest API.  If a basic type such as str, int or float, a
+    simple str conversion is done, then converted to bytes.  If more complex, the conversion will invoke the
+    'serialize' method of the value, raising TypeError if such a method does not exist or does not have a bare
+    (no-parameter) signature.
+
+    :param value: value to convert
+    :return: bytes serialized from value
+    """
+    try:
+        return to_str(value).encode(encoding)
+    except Exception as e:
+        raise TypeError(f"Converting response from Python type {type(value)} to string: {e}")

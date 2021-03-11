@@ -96,7 +96,7 @@ class APIDoc:
             route = '/' + api._func.__qualname__.replace('.', '/')
             top_line = f"ROUTE: {api.method.value} {route}"
             main_doc += f"\n{top_line}\n"
-            main_doc += '-'*len(top_line) + '\n'
+            main_doc += '~'*len(top_line) + '\n'
             main_doc += f"\nContent-Type: {api.content_type}\n"
         elif flavor == cls.Flavor.JAVASCRIPT:
             main_doc += f"{indent}/**"
@@ -117,14 +117,14 @@ class APIDoc:
                 _, doc = line[7:].strip().split(':', maxsplit=1)
                 if api.has_streamed_response:
                     doc = "[$$streamed$$] " + doc
-                main_doc += indent + f"$$return$$ {doc}\n"
+                main_doc += '\n' + indent + f"$$return$$ {doc}\n"
             elif line.startswith(':raises'):
                 _, doc = line[7:].strip().split(':', maxsplit=1)
                 main_doc += indent + f"$$raises$$ {doc}"
             else:
                 main_doc += indent + line + '\n'
         for name in [arg for arg in api.arg_annotations if arg not in type_names]:
-            main_doc += f"{indent}*undocumented param*: {name} of type {cls._get_type_name(api.arg_annotations[name])}"
+            main_doc += f"\n{indent}*undocumented param*: {name} of type {cls._get_type_name(api.arg_annotations[name])}"
             type_names[name] = api.arg_annotations[name]
         main_doc += "\n"
         if flavor == cls.Flavor.JAVASCRIPT:
@@ -138,6 +138,16 @@ class APIDoc:
         elif flavor == cls.Flavor.REST:
             for name in api.arg_annotations:
                 main_doc = main_doc.replace(f"$${name}$$", f"{name} *{type_names[name]}* -- ")
+            from .http import WebApplication
+            if api._func in WebApplication._instance_methods_class_map or api._func.__name__ == '_release':
+                self_param = "**param**: self {{string}} -- unique id of a created instance"
+                if '**param**' in main_doc:
+                    main_doc = main_doc.replace('**param**', self_param + '\n**param**', 1)
+                elif '**return**' in main_doc:
+                    main_doc = main_doc.replace('**return**', self_param + '\n**return**', 1)
+                else:
+                    main_doc += self_param + '\n'
+
             main_doc = main_doc.replace('**return**', "**response** ")
             main_doc = main_doc.replace('**param**', "\n**param** ")
             main_doc = main_doc.replace('$$return$$', f"**response**: *{return_type_name}* -- ")
@@ -158,6 +168,8 @@ class APIDoc:
         """
         if str(typ).startswith('typing.AsyncIterator') or str(typ).startswith('typing.AsyncGenerator'):
             root_type = str(typ).split('[')[1].replace(']', '')
+            if ',' in root_type:
+                root_type = root_type.split(',')[1]
             return f"iterator of type {root_type}"
         elif str(typ).startswith('typing.Union'):
             root_type = str(typ).split('[')[1].split(',')[0]
