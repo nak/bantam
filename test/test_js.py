@@ -17,6 +17,32 @@ from bantam.api import AsyncLineIterator, RestMethod
 from bantam.http import WebApplication
 
 
+class ClassRestExample:
+    """
+    HTTP resource for testing class with instance methods
+    """
+
+    def __init__(self, val: int):
+        """
+        Create a session-level object
+
+        :param val: some dummy value
+        """
+        self._value = val
+
+    @web_api(content_type='text/plain', method=RestMethod.POST)
+    async def echo(self, param1: int, param2: bool, param3: float, param4: Optional[str] = "text") -> str:
+        """
+        Some sort of doc
+        :param param1:
+        :param param2:
+        :param param3:
+        :param param4:
+        :return: sting based on state and params
+        """
+        return f"called basic post operation on instance {self._value}: {param1} {param2} {param3} {param4}"
+
+
 class RestAPIExample:
 
     result_queue : Optional[asyncio.Queue] = None

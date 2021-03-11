@@ -61,7 +61,7 @@ class TestRunner{
         }  else {
             elem.innerHTML = test + ": FAILED  response not as expected '" + text + "' != " + expected;
             elem.setAttribute('style', 'color:red');
-            this.failed[test] = reason;
+            this.failed[test] = elem.innerHTML;
         }
         this.publish_results();
     }

@@ -144,8 +144,18 @@ class JavascriptGenerator:
                 out.write(f"{parent_name}.{name_} = class {{}}\n".encode(cls.ENCODING))
                 process_namespace(child_ns, parent_name + '.' + name_)
             for class_name, routes in ns.classes.items():
+                clazz_map = {c.__name__ : c for c in WebApplication._class_instance_methods
+                             if WebApplication._class_instance_methods[c]}
                 out.write(f"\n{parent_name}.{class_name} = class {{\n".encode(cls.ENCODING))
                 tab += "   "
+
+                if class_name in clazz_map:
+                    clazz = clazz_map[class_name]
+                    cls._generate_request(out, route=f"/{class_name}/_create", method=RestMethod.GET, api=clazz._create,
+                                          tab=tab, content_type="text/plain", streamed_resp=False)
+                    cls._generate_request(out, route=f"/{class_name}/_release", method=RestMethod.GET,
+                                          api=clazz._release,
+                                          tab=tab, content_type="text/plain", streamed_resp=False)
                 for method, route_, api in routes:
                     content_type = WebApplication.content_type.get(route_) or 'text/plain'
                     is_streamed = inspect.isasyncgenfunction(api)
@@ -153,9 +163,11 @@ class JavascriptGenerator:
                 tab = tab[:-3]
                 out.write(f"}};\n".encode(cls.ENCODING))  # for class end
 
+        out.write("\nclass bantam {};\n".encode(cls.ENCODING))
         for name, namespace in namespaces.child_namespaces.items():
+            if name.startswith('bantam'):
+                continue
             name = "bantam." + name
-            out.write("\nclass bantam {};\n".encode(cls.ENCODING))
             out.write(f"{name} = class {{}};\n".encode(cls.ENCODING))
             tab += "   "
             process_namespace(namespace, name)
@@ -242,9 +254,11 @@ class JavascriptGenerator:
     def _generate_request(cls, out: IO, route: str, method: RestMethod,
                           api: AsyncApi, tab: str, content_type: str, streamed_resp: bool):
         arg_count = api.__code__.co_argcount
+        if 'self' in api.__code__.co_varnames:
+            arg_count -= 1
         api = API(api, method=method, content_type=content_type)
-        if arg_count != len(api.arg_annotations):
-            raise Exception(f"Not all arguments of '{api.__module__}.{api.__name__}' have type hints.  This is required for web_api")
+        if not api._func.__name__.startswith('_') and arg_count != len(api.arg_annotations):
+            raise Exception(f"Not all arguments of '{api._func.__qualname__}' have type hints.  This is required for web_api")
         if streamed_resp is True:
             callback = 'onreceive'
             state = 3
@@ -254,9 +268,16 @@ class JavascriptGenerator:
             state = 'XMLHttpRequest.DONE'
         cls._generate_docs(out, api, tab, callback=callback)
         argnames = [param for param in api.arg_annotations.keys()]
-        out.write(f"{tab}static {api.name}({callback}, onerror, {', '.join(argnames)}) {{\n".encode(cls.ENCODING))
+        if api._func.__name__ == '_create':
+            out.write(
+                f"{tab}constructor({', '.join(argnames)}) {{\n".encode(
+                    cls.ENCODING))
+        else:
+            name = api._func.__name__ if not api._func.__name__.startswith('_') else api._func.__name__[1:]
+            out.write(f"{tab}static {name}({callback}, onerror, {', '.join(argnames)}) {{\n".encode(cls.ENCODING))
         if method == RestMethod.GET:
             cls._generate_get_request(out=out, route=route, tab=tab, content_type=content_type,
+                                      func=api._func,
                                       annotations=api.arg_annotations,
                                       response_type=api.return_type,
                                       state=state,
@@ -344,6 +365,7 @@ class JavascriptGenerator:
 
     @classmethod
     def _generate_get_request(cls, out: IO,
+                              func,
                                route: str,
                                tab: str,
                                content_type: str,
@@ -355,7 +377,32 @@ class JavascriptGenerator:
         argnames = [param for param in annotations.keys()]
         tab += "   "
         convert_codeblock = cls._generate_streamed_response(response_type, streamed_response, callback=callback, tab=tab)
-        out.write(f"""
+        if func.__name__ == '_create':
+
+            out.write(f"""
+{tab}let request = new XMLHttpRequest();
+{tab}let params = "";
+{tab}let c = '?';
+{tab}let map = {{{','.join(['"' + arg + '": ' + arg for arg in argnames])}}};
+{tab}for (var param of [{", ".join(['"' + a + '"' for a in argnames])}]){{
+{tab}    if (typeof map[param] !== 'undefined'){{
+{tab}        let value = JSON.stringify(map[param])
+{tab}        if (value[0] === '"'){{
+{tab}            value = value.slice(1, -1)
+{tab}        }}
+{tab}        params += c + param + '=' + value;
+{tab}        c= '&';
+{tab}    }}
+{tab}}}
+{tab}request.open("GET", "{route}" + params, false);
+{tab}request.setRequestHeader('Content-Type', "{content_type}");
+{tab}request.send(null);
+{tab}if (request.status === 200){{
+{tab}       self.self_id = request.responseText;
+{tab}}}
+""".encode(cls.ENCODING))
+        else:
+            out.write(f"""
 {tab}let request = new XMLHttpRequest();
 {tab}let params = "";
 {tab}let c = '?';

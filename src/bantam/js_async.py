@@ -327,6 +327,15 @@ class bantam {
                 process_namespace(child_ns, parent_name + '.' + name_)
             for class_name, routes in ns.classes.items():
                 out.write(f"\n{parent_name}.{class_name} = class {{\n".encode(cls.ENCODING))
+                clazz_map = {c.__name__ : c for c in WebApplication._class_instance_methods
+                             if WebApplication._class_instance_methods[c]}
+                if class_name in clazz_map:
+                    clazz = clazz_map[class_name]
+                    cls._generate_request(out, route=f"/{class_name}/_create", method=RestMethod.GET, api=clazz._create,
+                                          tab=tab, content_type="text/plain")
+                    cls._generate_request(out, route=f"/{class_name}/_release", method=RestMethod.GET,
+                                          api=clazz._release,
+                                          tab=tab, content_type="text/plain")
                 tab += "   "
                 for method, route_, api in routes:
                     content_type = WebApplication.content_type.get(route_) or 'text/plain'
@@ -337,6 +346,8 @@ class bantam {
         ni = '\n'
         out.write(f"{ni}{cls.BANTAM_CORE};{ni}".encode(cls.ENCODING))
         for name, namespace in namespaces.child_namespaces.items():
+            if name.startswith('bantam'):
+                continue
             name = "bantam." + name
             out.write(f"{name} = class {{}};\n".encode(cls.ENCODING))
             tab += "   "
@@ -371,7 +382,14 @@ class bantam {
         out.write(b'\n')
         out.write(api_doc.encode('utf-8'))
         argnames = list(annotations.keys())
-        out.write(f"{tab}static async{'*' if streamed_resp else ''} {api.__name__}({', '.join(argnames)}) {{\n".encode(cls.ENCODING))
+        if api.__name__ == '_create':
+            out.write(
+                f"{tab}constructor({', '.join(argnames)}) {{\n".encode(
+                    cls.ENCODING))
+        else:
+            name = api.__name__ if not api.__name__.startswith('_') else api.__name__[1:]
+            out.write(f"{tab}static async{'*' if streamed_resp else ''} {name}({', '.join(argnames)}) {{\n".
+                      encode(cls.ENCODING))
         async_annotations = [a for a in annotations.items() if a[1] in (AsyncChunkIterator, AsyncLineIterator)]
         if async_annotations:
             if len(async_annotations) > 1:
@@ -384,6 +402,7 @@ class bantam {
             convert = "convert_complex"
         else:
             convert = {str: "convert_str",
+                       int: "convert_int",
                        int: "convert_int",
                        float: "convert_float",
                        bool: "convert_bool",
@@ -408,6 +427,16 @@ class bantam {
 {tab}                    {str(response_type == bytes).lower()}
 {tab}                    {f", {streamed_param}" if streamed_param else ""})){{
 {tab}   yield chunk;
+{tab}}}
+{tab[:-3]}}}
+""".encode('utf-8'))
+        elif api.__name__ == '_create':
+            out.write(f"""
+{tab}request.open("GET","{route}" + bantam.compute_query(params), false);
+{tab}request.setRequestHeader('Content-Type', "{content_type}");
+{tab}request.send(null);
+{tab}if (request.status === 200){{
+{tab}       self.self_id = request.responseText;
 {tab}}}
 {tab[:-3]}}}
 """.encode('utf-8'))
