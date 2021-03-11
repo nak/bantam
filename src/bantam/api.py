@@ -12,11 +12,11 @@ class RestMethod(Enum):
 
 class API:
 
-    def __init__(self, func, method: RestMethod, content_type: str):
+    def __init__(self, func, method: RestMethod, content_type: str, is_instance_method: bool):
         annotations = func.__annotations__
+        self._is_instance_method = is_instance_method
         self._func = func
         self._method = method
-        self._content_type = content_type
         if 'return' not in annotations:
             raise TypeError(f"No annotation for return type in {func}")
         self._arg_annotations = {name: typ for name, typ in annotations.items() if name != 'return'}
@@ -26,18 +26,38 @@ class API:
         if len(self._async_arg_annotations) > 1:
             raise TypeError("At most one parameter can be and async iterator in a web_api request")
         self._return_type = annotations['return']
+        self._has_streamed_response = False
         if str(self._return_type).startswith('typing.AsyncIterator'):
             self._return_type = self._return_type.__args__[0]
+            self._has_streamed_response = True
         elif str(self._return_type).startswith('typing.AsyncGenerator'):
             self._return_type = self._return_type.__args__[1]
+            self._has_streamed_response = True
+        self._content_type = content_type if not self.has_streamed_response else 'text/streamed; charset=x-user-defined'
 
     @property
     def name(self):
         return self._func.__name__
 
     @property
+    def qualname(self):
+        return self._func.__qualname__
+
+    @property
+    def module(self):
+        return self._func.__module__
+
+    @property
+    def doc(self):
+        return self._func.__doc__
+
+    @property
     def method(self):
         return self._method
+
+    @property
+    def is_instance_method(self):
+        return self._is_instance_method
 
     @property
     def content_type(self):
@@ -65,7 +85,10 @@ class API:
 
     @property
     def has_streamed_response(self) -> bool:
-        return str(self._return_type).startswith('typing.AsyncIterator')
+        return self._has_streamed_response
+
+    def __call__(self, *args, **kwargs):
+        return self._func(*args, **kwargs)
 
 
 class APIDoc:
@@ -139,7 +162,7 @@ class APIDoc:
             for name in api.arg_annotations:
                 main_doc = main_doc.replace(f"$${name}$$", f"{name} *{type_names[name]}* -- ")
             from .http import WebApplication
-            if api._func in WebApplication._instance_methods_class_map or api._func.__name__ == '_release':
+            if api in WebApplication._instance_methods_class_map or api.name == '_release':
                 self_param = "**param**: self {{string}} -- unique id of a created instance"
                 if '**param**' in main_doc:
                     main_doc = main_doc.replace('**param**', self_param + '\n**param**', 1)

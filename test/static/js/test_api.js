@@ -54,7 +54,7 @@ class TestRunner{
     onsuccess(test, text, expected) {
         var elem = document.createElement('p');
         document.body.insertBefore(elem, document.getElementById('div1'));
-        if (text == expected || typeof expected == 'undefined'){
+        if (text === expected || typeof expected === 'undefined'){
             elem.innerHTML = test + ": PASSED";
             elem.setAttribute('style', 'color:darkgreen');
             this.passed[test] = "PASSED";
@@ -75,7 +75,8 @@ class TestRunner{
             this.test_api_post_basic_optional_param_value,
             this.test_api_post_streamed_response,
             this.test_api_post_streamed_response_text,
-            this.test_api_post_basic_error_not_all_required_params];
+            this.test_api_post_basic_error_not_all_required_params,
+            this.test_api_session_instance];
         //this will run test in parallel, as the onerror/onsuccess callbacks are invoked asynchrounously
         for (var test of this.test_suite) {
             this.current_test = test;
@@ -256,4 +257,15 @@ class TestRunner{
             1234, true);
     }
 
+    test_api_session_instance(testname) {
+        let self = this;
+        let api = new bantam.test.test_js.ClassRestExample(92);
+        let response;
+        api.echo(function(text){
+                self.onsuccess(testname, text, "called basic post operation on instance 92: 1234 True -8721.345 text");
+            },
+            function(code, reason){self.onerror(testname, code, reason)},
+            1234, true, -8721.345);
+
+    }
 }

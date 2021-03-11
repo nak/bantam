@@ -147,10 +147,10 @@ class WebApplication:
        will be generated, if provided
     """
     _context: Dict[Awaitable, Request] = {}
-    _class_instance_methods: Dict[Type, List[Callable[..., Any]]] = {}
-    _instance_methods_class_map: Dict[Callable[..., Any], Type] = {}
-    _instance_methods: List[Callable[..., Any]] = []
-    _all_methods: List[Callable[..., Any]] = []
+    _class_instance_methods: Dict[Type, List[API]] = {}
+    _instance_methods_class_map: Dict[API, Type] = {}
+    _instance_methods: List[API] = []
+    _all_methods: List[API] = []
 
     class ObjectRepo:
         instances: Dict[str, Any] = {}
@@ -163,9 +163,8 @@ class WebApplication:
 
     routes_get: Dict[str, AsyncApi] = {}
     routes_post: Dict[str, AsyncApi] = {}
-    callables_get: Dict[str, WebApi] = {}
-    callables_post: Dict[str, WebApi] = {}
-    content_type: Dict[str, str] = {}
+    callables_get: Dict[str, API] = {}
+    callables_post: Dict[str, API] = {}
 
     def __init__(self,
                  *,
@@ -182,10 +181,6 @@ class WebApplication:
         self._using_async = using_async
         self._web_app = Application(handler_args=handler_args,
                                     client_max_size=client_max_size, debug=debug)
-        for route, api_get in self.routes_get.items():
-            self._web_app.router.add_get(route, wrap(self, api_get))
-        for route, api_post in self.routes_post.items():
-            self._web_app.router.add_post(route, wrap(self, api_post))
         if static_path:
             self._web_app.add_routes([web.static('/static', str(static_path))])
         self._started = False
@@ -213,16 +208,16 @@ class WebApplication:
             out.write("\nReST Resources and Methods")
             out.write("\n==========================\n")
             resources_seen = set()
-            for route, api in sorted(list(WebApplication.callables_get.items()) +
-                                     list(WebApplication.callables_post.items())):
+            for (route, api), method in sorted(
+                    [(item, RestMethod.GET) for item in WebApplication.callables_get.items()] +
+                    [(item, RestMethod.POST) for item in WebApplication.callables_post.items()]
+            ):
                 resource, _ = route[1:].split('/', maxsplit=1)
                 if resource not in resources_seen:
                     resources_seen.add(resource)
                     for clazz in WebApplication._class_instance_methods:
                         if clazz.__name__ == resource:
                             document_class(clazz, out)
-                content_type = WebApplication.content_type.get(route)
-                api = API(api, method=RestMethod.GET, content_type=content_type)
                 out.write(APIDoc.generate(api=api, flavor=APIDoc.Flavor.REST))
                 out.write("\n")
         if html_out.exists():
@@ -281,45 +276,43 @@ class WebApplication:
     def postprocessor(self):
         return self._postprocessor
 
-    @staticmethod
-    def register_route_get(route: str, async_handler: AsyncApi, async_web_api: WebApi, content_type: str) -> None:
+    @classmethod
+    def register_route_get(cls, route: str, async_handler: AsyncApi, api: API) -> None:
         """
         Register the given handler as a GET call. This should be called from the @web_api decorator, and
         rarely if ever called directly
 
         :param route: route to register under
         :param async_handler: the raw handler for handling an incoming Request and returning a Response
-        :param async_web_api: the high-level deocrated web_api that will be invoked by the handler
+        :param api: the high-level deocrated web_api that will be invoked by the handler
         :param content_type: http content-type header value
         """
-        if route in WebApplication.routes_get or route in WebApplication.routes_post:
+        if route in WebApplication.routes_get or route in cls.routes_post:
             existing = WebApplication.callables_get.get(route) or WebApplication.callables_post.get(route)
             raise WebApplication.DuplicateRoute(
-                f"Route '{route}' associated with {async_web_api.__module__}.{async_web_api.__name__}"
-                f" already exists here: {existing.__module__}.{existing.__name__} "
+                f"Route '{route}' associated with {api.module}.{api.name}"
+                f" already exists here: {existing.module}.{existing.name} "
             )
-        WebApplication.routes_get[route] = async_handler
-        WebApplication.callables_get[route] = async_web_api
-        WebApplication.content_type[route] = content_type
+        cls.routes_get[route] = async_handler
+        cls.callables_get[route] = api
 
     @staticmethod
-    def register_route_post(route: str, async_method: AsyncApi, func: WebApi, content_type: str) -> None:
+    def register_route_post(route: str, async_method: AsyncApi, api: API) -> None:
         """
         Register the given handler as a POST call.  This should be called from the @web_api decorator, and
         rarely if ever called directly
 
         :param route: route to register under
         :param async_method: the raw handler for handling an incoming Request and returning a Response
-        :param func: the high-level deocrated web_api that will be invoked by the handler
+        :param api: web api (decorated as @web_api) instance
         :param content_type: http content-type header value
         """
         if route in WebApplication.routes_post or route in WebApplication.routes_get:
             existing = WebApplication.callables_get.get(route) or WebApplication.callables_post.get(route)
-            raise WebApplication.DuplicateRoute(f"Route '{route}' associated with {func.__module__}.{func.__name__}"
-                                                f" already exists here {existing.__module__}.{existing.__name__} ")
+            raise WebApplication.DuplicateRoute(f"Route '{route}' associated with {api.module}.{func.name}"
+                                                f" already exists here {existing.module}.{existing.name} ")
         WebApplication.routes_post[route] = async_method
-        WebApplication.callables_post[route] = func
-        WebApplication.content_type[route] = content_type
+        WebApplication.callables_post[route] = api
 
     async def start(self,
                     host: Optional[Union[str, HostSequence]] = None,
@@ -348,11 +341,19 @@ class WebApplication:
             on Windows.
         """
         from aiohttp.web import _run_app as web_run_app
-        for method in self._all_methods:
-            if method.__name__ in ['_release']:
+        for api in self._all_methods:
+            if api.name in ['_release']:
                 continue
-            mod = importlib.import_module(method.__module__)
-            self._process_module_classes(mod, method)
+            mod = importlib.import_module(api.module)
+            self._process_module_classes(mod, api)
+
+        for route, api_get in self.routes_get.items():
+            import logging
+            log = logging.getLogger("LOG")
+            log.error(f">>>>>>>>>> ROUTE {route}")
+            self._web_app.router.add_get(route, wrap(self, api_get))
+        for route, api_post in self.routes_post.items():
+            self._web_app.router.add_post(route, wrap(self, api_post))
 
         if self._js_bundle_name:
             if self._static_path is None:
@@ -397,8 +398,8 @@ class WebApplication:
         return WebApplication._context[frame].headers
 
     @classmethod
-    def _process_module_classes(cls, mod: types.ModuleType, method: WebApi):
-        def process_class(clazz: Any):
+    def _process_module_classes(cls, mod: types.ModuleType, api: API):
+        def process_class(clazz: Type):
             if hasattr(clazz, '_release') or hasattr(clazz, '_create'):
                 raise TypeError("Classes with @web_api applied cannot have methods named _release nor _create")
 
@@ -406,7 +407,7 @@ class WebApplication:
             @staticmethod
             async def _create(*args, **kargs) -> str:
                 instance = clazz(*args, **kargs)
-                self_id = str(instance).split(' ', maxsplit=1)[-1][:-1]
+                self_id = str(instance).split(' ')[-1][:-1]
                 cls.ObjectRepo.instances[self_id] = instance
                 return self_id
 
@@ -441,14 +442,14 @@ class WebApplication:
             cls._func_wrapper(clazz._release, is_instance_method=True, method=RestMethod.GET, content_type="text/plain")
 
         for clazz in [cls for _, cls in inspect.getmembers(mod) if inspect.isclass(cls)]:
-            method_found = any([item for item in inspect.getmembers(clazz) if item[1] == method])
-            if method_found and method in cls._instance_methods:
+            method_found = any([item for item in inspect.getmembers(clazz) if item[1] == api._func])
+            if method_found and api in cls._instance_methods:
                 if clazz not in cls._class_instance_methods:
                     process_class(clazz)
-                cls._class_instance_methods.setdefault(clazz, []).append(method)
-                cls._instance_methods_class_map[method] = clazz
+                cls._class_instance_methods.setdefault(clazz, []).append(api)
+                cls._instance_methods_class_map[api] = clazz
                 break
-            elif method_found and method in cls._all_methods:
+            elif method_found and api in cls._all_methods:
                 cls._class_instance_methods.setdefault(clazz, [])  # create an empty list of instance methods at least
                 break
 
@@ -465,16 +466,17 @@ class WebApplication:
         :param clazz: if function is instance method, provide owning class, otherwise None
         :return: function back, having processed as a web api and registered the route
         """
+        api = API(func, method, content_type, is_instance_method)
         if is_instance_method:
             if not inspect.iscoroutinefunction(func) and not inspect.isasyncgenfunction(func):
                 raise ValueError("the @web_api decorator can only be applied to classes with public "
-                                 f"methods that are coroutines (async); see {func.__qualname__}")
-            cls._instance_methods.append(func)
+                                 f"methods that are coroutines (async); see {api.qualname}")
+            cls._instance_methods.append(api)
         else:
             if not inspect.iscoroutinefunction(func) and not inspect.isasyncgenfunction(func):
                 raise ValueError("the @web_api decorator can only be applied to methods that are coroutines (async)")
-        cls._all_methods.append(func)
-        name = func.__qualname__.replace('__init__', 'create').replace('._release', '.release')
+        cls._all_methods.append(api)
+        name = api.qualname.replace('__init__', 'create').replace('._release', '.release')
         name_parts = name.split('.')[-2:]
         route = '/' + '/'.join(name_parts)
 
@@ -489,12 +491,12 @@ class WebApplication:
                 if method == RestMethod.GET:
                     # noinspection PyProtectedMember
                     response = await cls._invoke_get_api_wrapper(
-                        func, content_type=content_type, request=request, clazz=invoke.clazz, **addl_args
+                        api, content_type=content_type, request=request, clazz=invoke.clazz, **addl_args
                     )
                 elif method == RestMethod.POST:
                     # noinspection PyProtectedMember
                     response = await cls._invoke_post_api_wrapper(
-                        func, content_type=content_type, request=request, clazz=invoke.clazz, **addl_args
+                        api, content_type=content_type, request=request, clazz=invoke.clazz, **addl_args
                     )
                 else:
                     raise ValueError(f"Unknown method {method} in @web-api")
@@ -507,17 +509,17 @@ class WebApplication:
             except Exception as e:
                 return Response(status=500, text=f"Server error: {e}")
 
-        invoke.clazz = WebApplication._instance_methods_class_map.get(func) if is_instance_method else None
+        invoke.clazz = WebApplication._instance_methods_class_map.get(api) if is_instance_method else None
         if method == RestMethod.GET:
-            WebApplication.register_route_get(route, invoke, func, content_type)
+            WebApplication.register_route_get(route, invoke, api)
         elif method == RestMethod.POST:
-            WebApplication.register_route_post(route, invoke, func, content_type)
+            WebApplication.register_route_post(route, invoke, api)
         else:
             raise ValueError(f"Unknown method {method} in @web-api")
         return func
 
     @classmethod
-    async def _invoke_get_api_wrapper(cls, func: WebApi, content_type: str, request: Request, clazz: Any,
+    async def _invoke_get_api_wrapper(cls, api: API, content_type: str, request: Request, clazz: Any,
                                       **addl_args: Any) -> Union[Response, StreamResponse]:
         """
         Invoke the underlying GET web API from given request.  Called as part of setup in cls._func_wrapper
@@ -529,7 +531,6 @@ class WebApplication:
         """
         # noinspection PyUnresolvedReferences,PyProtectedMember
         cls._context[sys._getframe(0)] = request
-        api = API(func, method=RestMethod.GET, content_type=content_type)
         if api.has_streamed_request:
             raise TypeError("GET web_api methods does not support streaming requests")
         try:
@@ -540,10 +541,10 @@ class WebApplication:
                 if item.startswith('charset='):
                     encoding = item.replace('charset=', '')
             # report first param that doesn't match the Python signature:
-            for k in [p for p in request.query if p not in api.arg_annotations]:
+            for k in [p for p in request.query if p not in api.arg_annotations and p != 'self']:
                 return Response(
                     status=400,
-                    text=f"No such parameter or missing type hint for param {k} in method {func.__qualname__}"
+                    text=f"No such parameter or missing type hint for param {k} in method {api.qualname}"
                 )
 
             # convert incoming str values to proper type:
@@ -560,10 +561,10 @@ class WebApplication:
                 if instance is None:
                     raise ValueError(f"No instance found for request with 'self' id of {self_id}")
                 del kwargs['self']
-                result = func(instance, **kwargs)
+                result = api(instance, **kwargs)
             else:
                 # call the underlying function:
-                result = func(**kwargs)
+                result = api(**kwargs)
             if inspect.isasyncgen(result):
                 #################
                 #  streamed response through async generator:
@@ -603,12 +604,12 @@ class WebApplication:
             del cls._context[sys._getframe(0)]
 
     @classmethod
-    async def _invoke_post_api_wrapper(cls, func: WebApi, content_type: str, request: Request, clazz: Any,
+    async def _invoke_post_api_wrapper(cls, api: API, content_type: str, request: Request, clazz: Any,
                                        **addl_args: Any) -> Union[Response, StreamResponse]:
         """
         Invoke the underlying POST web API from given request. Called as part of setup in cls._func_wrapper
 
-        :param func:  async function to be called
+        :param api:  API wrapping async function to be called
         :param content_type: http header content-type
         :param request: request to be processed
         :return: http response object
@@ -642,7 +643,6 @@ class WebApplication:
                 encoding = item.replace('charset=', '')
         if not request.can_read_body:
             raise TypeError("Cannot read body for request in POST operation")
-        api = API(func, method=RestMethod.POST, content_type=content_type)
         try:
             kwargs: Dict[str, Any] = {}
             if api.has_streamed_request:
@@ -659,10 +659,10 @@ class WebApplication:
                 # treat payload as json string:
                 bytes_response = await request.read()
                 json_dict = json.loads(bytes_response.decode('utf-8'))
-                for k in [p for p in json_dict if p not in api.arg_annotations]:
+                for k in [p for p in json_dict if p not in api.arg_annotations and p != 'self']:
                     return Response(
                         status=400,
-                        text=f"No such parameter or missing type hint for param {k} in method {func.__qualname__}"
+                        text=f"No such parameter or missing type hint for param {k} in method {api.qualname}"
                     )
 
                 # convert incoming str values to proper type:
@@ -670,7 +670,7 @@ class WebApplication:
             # call the underlying function:
             if addl_args:
                 kwargs.update(addl_args)
-            if clazz:
+            if api.is_instance_method:
                 self_id = kwargs.get('self')
                 if self_id is None:
                     raise ValueError("No instance provided for call to instance method")
@@ -678,9 +678,9 @@ class WebApplication:
                 if instance is None:
                     raise ValueError(f"No instance id found for request {self_id}")
                 del kwargs['self']
-                awaitable = func(instance, **kwargs)
+                awaitable = api(instance, **kwargs)
             else:
-                awaitable = func(**kwargs)
+                awaitable = api(**kwargs)
             if inspect.isasyncgen(awaitable):
                 #################
                 #  streamed response through async generator:
@@ -713,6 +713,8 @@ class WebApplication:
 
         except TypeError as e:
             return Response(status=400, text=f"Improperly formatted query: {str(e)}")
+        except HTTPException as e:
+            return Response(status=e.status_code, text=str(e))
         except Exception as e:
             return Response(status=500, text=str(e))
         finally:

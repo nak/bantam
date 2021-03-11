@@ -18,9 +18,12 @@ class TestRunner{
         }
         async function close(){
             let api = bantam.test.test_js_async.RestAPIExample;
+            await sleep(5000);
+            if (failed_count > 0){
+               alert("HERE");
+            }
             api.publish_result(function(a, b){}, function(a,b){},
                                failed_count==0?"PASSED":JSON.stringify(self.failed));
-            await sleep(5000);
             window.close();
         }
         if (this.test_suite.length == passed_count + failed_count){
@@ -73,7 +76,8 @@ class TestRunner{
             this.test_api_post_basic_optional_param_value,
             this.test_api_post_basic_error_not_all_required_params,
             this.test_api_post_streamed_response_text,
-            this.test_api_post_streamed_req_resp
+            this.test_api_post_streamed_req_resp,
+            this.test_api_session_instance
             ];
         (async () => {
             //this will run test in parallel, as the onerror/onsuccess callbacks are invoked asynchrounously
@@ -280,4 +284,15 @@ class TestRunner{
         }
     }
 
+
+   async test_api_session_instance(testname) {
+        let self = this;
+        let api = new bantam.test.test_js_async.ClassRestExample(92);
+        const text =  await api.echo(1234, true, -8721.345);
+        if (text !== "called basic post operation on instance 92: 1234 True -8721.345 text") {
+           self.onerror(testname, -1, "not a match:  '" + text + "' != 'called basic post operation on instance 92: 1234 True -8721.345 text'");
+        } else {
+            self.onsuccess(testname);
+        }
+    }
 }

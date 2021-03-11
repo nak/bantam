@@ -6,7 +6,7 @@ import traceback
 import webbrowser
 from contextlib import suppress
 from pathlib import Path
-from typing import AsyncGenerator, Optional, Dict, Any, List
+from typing import AsyncIterator, Optional, Dict, Any, List
 
 import pytest
 from aiohttp.web_request import Request
@@ -67,7 +67,7 @@ class RestAPIExample:
 
     @web_api(content_type='text/json', method=RestMethod.GET)
     @staticmethod
-    async def api_get_stream(param1: int, param2: bool, param3: float, param4: Optional[str] = None) -> AsyncGenerator[None, int]:
+    async def api_get_stream(param1: int, param2: bool, param3: float, param4: Optional[str] = None) -> AsyncIterator[int]:
         """
         Some sort of doc
         :param param1:
@@ -83,7 +83,7 @@ class RestAPIExample:
     @web_api(content_type='text/json', method=RestMethod.GET)
     @staticmethod
     async def api_get_stream_bytes(param1: int, param2: bool, param3: float, param4: Optional[str] = None,
-                                  param5: Optional[List[int]] = None) -> AsyncGenerator[None, bytes]:
+                                  param5: Optional[List[int]] = None) -> AsyncIterator[bytes]:
         """
         Some sort of doc
         :param param1:
@@ -112,7 +112,7 @@ class RestAPIExample:
 
     @web_api(content_type='text/json', method=RestMethod.POST)
     @staticmethod
-    async def api_post_stream(param1: int, param2: bool, param3: float, param4: str) -> AsyncGenerator[None, int]:
+    async def api_post_stream(param1: int, param2: bool, param3: float, param4: str) -> AsyncIterator[int]:
         """
         Some sort of doc
         :param param1:
@@ -128,7 +128,7 @@ class RestAPIExample:
     @web_api(content_type='text/plain', method=RestMethod.POST)
     @staticmethod
     async def api_post_streamed_req_and_resp(param1: int, param2: bool, param3: float, param4: AsyncLineIterator)\
-            -> AsyncGenerator[None, str]:
+            -> AsyncIterator[str]:
         """
         Some sort of doc
         :param param1:
@@ -143,7 +143,7 @@ class RestAPIExample:
 
     @web_api(content_type='text/json', method=RestMethod.POST)
     @staticmethod
-    async def api_post_stream_text(param1: int, param2: bool, param3: float, param4: Optional[str] = None) -> AsyncGenerator[None, str]:
+    async def api_post_stream_text(param1: int, param2: bool, param3: float, param4: Optional[str] = None) -> AsyncIterator[str]:
         """
         Some sort of doc
         :param param1:
@@ -202,11 +202,10 @@ class TestJavascriptGenerator:
             return result
 
         try:
-            completed, _ = await asyncio.wait([app.start(), launch_browser()], timeout=1000000, return_when=asyncio.FIRST_COMPLETED)
+            completed, _ = await asyncio.wait([app.start(), launch_browser()], timeout=100, return_when=asyncio.FIRST_COMPLETED)
             results = [c.result() for c in completed if c is not None]
         except Exception as e:
             assert False, f"Exception processing javascript results: {traceback.format_exc()}"
-
         if any([isinstance(r, Exception) for r in results]):
             assert False, "At least one javascript test failed. See browser window for details"
         assert results[0] == "PASSED", \

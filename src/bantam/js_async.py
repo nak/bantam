@@ -269,7 +269,7 @@ class bantam {
         
         def __init__(self):
             self._namespaces: Dict[str, JavascriptGeneratorAsync.Namespace] = {}
-            self._classes: Dict[str, List[Tuple[RestMethod, str, Coroutine]]] = {}
+            self._classes: Dict[str, List[Tuple[RestMethod, str, API]]] = {}
         
         def add_module(self, module: str) -> 'JavascriptGeneratorAsync.Namespace':
             if '.' in module:
@@ -281,12 +281,12 @@ class bantam {
                 m = self._namespaces.setdefault(my_name, JavascriptGeneratorAsync.Namespace())
             return m
 
-        def add_class_and_route_get(self, module, class_name, route, api):
-            m = self.add_module(module)
+        def add_class_and_route_get(self,class_name: str, route: str, api: API) -> None:
+            m = self.add_module(api.module)
             m._classes.setdefault(class_name, []).append((RestMethod.GET, route, api))
 
-        def add_class_and_route_post(self, module, class_name, route, api):
-            m = self.add_module(module)
+        def add_class_and_route_post(self, class_name: str, route: str, api: API):
+            m = self.add_module(api.module)
             m._classes.setdefault(class_name, []).append((RestMethod.POST, route, api))
 
         @property
@@ -306,18 +306,16 @@ class bantam {
         :param skip_html: whether to skip entries of content type 'text/html' as these are generally not used in direct
            javascript calls
         """
-        from bantam.http import WebApplication
+        from .http import WebApplication
         namespaces = cls.Namespace()
         for route, api in WebApplication.callables_get.items():
-            content_type = WebApplication.content_type.get(route)
-            if not skip_html or (content_type.lower() != 'text/html'):
+            if not skip_html or (api.content_type.lower() != 'text/html'):
                 classname = route[1:].split('/')[0]
-                namespaces.add_class_and_route_get(api.__module__, classname, route, api)
+                namespaces.add_class_and_route_get(classname, route, api)
         for route, api in WebApplication.callables_post.items():
-            content_type = WebApplication.content_type.get(route)
-            if not skip_html or (content_type.lower() != 'text/html'):
+            if not skip_html or (api.content_type.lower() != 'text/html'):
                 classname = route[1:].split('/')[0]
-                namespaces.add_class_and_route_post(api.__module__, classname, route, api)
+                namespaces.add_class_and_route_post(classname, route, api)
         tab = ""
 
         def process_namespace(ns: cls.Namespace, parent_name: str):
@@ -331,15 +329,15 @@ class bantam {
                              if WebApplication._class_instance_methods[c]}
                 if class_name in clazz_map:
                     clazz = clazz_map[class_name]
-                    cls._generate_request(out, route=f"/{class_name}/_create", method=RestMethod.GET, api=clazz._create,
-                                          tab=tab, content_type="text/plain")
-                    cls._generate_request(out, route=f"/{class_name}/_release", method=RestMethod.GET,
-                                          api=clazz._release,
-                                          tab=tab, content_type="text/plain")
+                    cls._generate_request(out, route=f"/{class_name}/_create",
+                                          api=API(clazz._create, RestMethod.GET, "text/plain", False),
+                                          tab=tab)
+                    cls._generate_request(out, route=f"/{class_name}/_release",
+                                          api=API(clazz._release, RestMethod.GET, "text/plain", True),
+                                          tab=tab)
                 tab += "   "
                 for method, route_, api in routes:
-                    content_type = WebApplication.content_type.get(route_) or 'text/plain'
-                    cls._generate_request(out, route_, method, api, tab, content_type)
+                    cls._generate_request(out, route_, api, tab)
                 tab = tab[:-3]
                 out.write(f"}};\n".encode(cls.ENCODING))  # for class end
 
@@ -354,51 +352,36 @@ class bantam {
             process_namespace(namespace, name)
 
     @classmethod
-    def _generate_request(cls, out: IO, route: str, method: RestMethod,
-                          api: AsyncApi, tab: str, content_type: str):
-        annotations = dict(api.__annotations__)
-        response_type = annotations.get('return')
-        streamed_resp = False
-        if 'return' not in annotations:
-            response_type = 'string'
-        else:
-            if hasattr(response_type, '_name') and response_type._name == "AsyncGenerator":
-                response_type = response_type.__args__[1]
-                streamed_resp = True
-                content_type = 'text/streamed; charset=x-user-defined'
-            del annotations['return']
-
-        offset = 1 if 'self' in api.__code__.co_varnames else 0
-        if not api.__name__.startswith('_') and api.__code__.co_argcount - offset != len(annotations):
+    def _generate_request(cls, out: IO, route: str, api: API, tab: str):
+        offset = 1 if 'self' in api._func.__code__.co_varnames else 0
+        if not api.name.startswith('_') and api._func.__code__.co_argcount - offset != len(api.arg_annotations):
             raise Exception(
-                f"Not all arguments of '{api.__module__}.{api.__name__}' have type hints.  This is required for web_api"
+                f"Not all arguments of '{api.module}.{api.name}' have type hints.  This is required for web_api"
             )
         docs = APIDoc()
         try:
-            api_doc = docs.generate(api=API(api, method=method, content_type=content_type),
+            api_doc = docs.generate(api=api,
                                     flavor=APIDoc.Flavor.JAVASCRIPT, indent=tab)
         except Exception as e:
             api_doc = f"/**\n<<Unable to generate>> {e}\n**/\n"
         out.write(b'\n')
         out.write(api_doc.encode('utf-8'))
-        argnames = list(annotations.keys())
-        if api.__name__ == '_create':
+        argnames = list(api.arg_annotations.keys())
+        if api.name == '_create':
             out.write(
                 f"{tab}constructor({', '.join(argnames)}) {{\n".encode(
                     cls.ENCODING))
         else:
-            name = api.__name__ if not api.__name__.startswith('_') else api.__name__[1:]
-            out.write(f"{tab}static async{'*' if streamed_resp else ''} {name}({', '.join(argnames)}) {{\n".
+            name = api.name if not api.name.startswith('_') else api.name[1:]
+            static_text = "" if api.is_instance_method else "static "
+            out.write(f"{tab}{static_text}async{'*' if api.has_streamed_response else ''} {name}({', '.join(argnames)}) {{\n".
                       encode(cls.ENCODING))
-        async_annotations = [a for a in annotations.items() if a[1] in (AsyncChunkIterator, AsyncLineIterator)]
-        if async_annotations:
-            if len(async_annotations) > 1:
-                raise TypeError("Only one parameter may be streamed")
-            streamed_param, _ = async_annotations[0]
+        if api.async_arg_annotations:
+            streamed_param = list(api.async_arg_annotations.keys())[0]
             argnames.remove(streamed_param)
         else:
             streamed_param = None
-        if hasattr(response_type, '__dataclass_fields__'):
+        if hasattr(api.return_type, '__dataclass_fields__'):
             convert = "convert_complex"
         else:
             convert = {str: "convert_str",
@@ -409,7 +392,7 @@ class bantam {
                        bytes: "convert_bytes",
                        dict: "convert_complex",
                        list: "convert_complex",
-                       None: "convert_None"}[response_type]
+                       None: "convert_None"}[api.return_type]
         tab += "   "
         self_param_code = f"{tab}  \"self\": this.self_id{',' if argnames else ''}" + '\n' if offset == 1 else ""
         param_code = ',\n'.join([f"{tab}   \"{argname}\": {argname}" for argname in argnames])
@@ -418,31 +401,34 @@ class bantam {
 {self_param_code}{param_code}
 {tab}}}"""
         out.write(param_code.encode('utf-8'))
-        if streamed_resp:
+        if api.has_streamed_response:
             out.write(f"""
-{tab}for await (var chunk of bantam.fetch_{method.value}_streamed("{route}",
-{tab}                    "{content_type}", 
+{tab}for await (var chunk of bantam.fetch_{api.method.value}_streamed("{route}",
+{tab}                    "{api.content_type}", 
 {tab}                    params, 
 {tab}                    bantam.{convert},
-{tab}                    {str(response_type == bytes).lower()}
+{tab}                    {str(api.return_type == bytes).lower()}
 {tab}                    {f", {streamed_param}" if streamed_param else ""})){{
 {tab}   yield chunk;
 {tab}}}
 {tab[:-3]}}}
 """.encode('utf-8'))
-        elif api.__name__ == '_create':
+        elif api.name == '_create':
             out.write(f"""
+{tab}let request = new XMLHttpRequest();
 {tab}request.open("GET","{route}" + bantam.compute_query(params), false);
-{tab}request.setRequestHeader('Content-Type', "{content_type}");
+{tab}request.setRequestHeader('Content-Type', "{api.content_type}");
 {tab}request.send(null);
 {tab}if (request.status === 200){{
-{tab}       self.self_id = request.responseText;
+{tab}       this.self_id = request.responseText;
+{tab}}} else {{
+{tab}      throw request.stats;
 {tab}}}
 {tab[:-3]}}}
 """.encode('utf-8'))
         else:
             out.write(f"""
-{tab}return await bantam.fetch_{method.value}("{route}", "{content_type}", params,
-{tab}           bantam.{convert}, {f", {streamed_param}" if streamed_param else ""});
+{tab}return await bantam.fetch_{api.method.value}("{route}", "{api.content_type}", params,
+{tab}           bantam.{convert} {f", {streamed_param}" if streamed_param else ""});
 {tab[:-3]}}}
 """.encode('utf-8'))
