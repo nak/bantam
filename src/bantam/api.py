@@ -162,7 +162,7 @@ class APIDoc:
             for name in api.arg_annotations:
                 main_doc = main_doc.replace(f"$${name}$$", f"{name} *{type_names[name]}* -- ")
             from .http import WebApplication
-            if api in WebApplication._instance_methods_class_map or api.name == '_release':
+            if api in WebApplication._instance_methods_class_map or api.name == '_expire':
                 self_param = "**param**: self {{string}} -- unique id of a created instance"
                 if '**param**' in main_doc:
                     main_doc = main_doc.replace('**param**', self_param + '\n**param**', 1)

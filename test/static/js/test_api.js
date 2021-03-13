@@ -266,6 +266,6 @@ class TestRunner{
             },
             function(code, reason){self.onerror(testname, code, reason)},
             1234, true, -8721.345);
-
+        api.expire()
     }
 }

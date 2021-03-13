@@ -332,8 +332,8 @@ class bantam {
                     cls._generate_request(out, route=f"/{class_name}/_create",
                                           api=API(clazz._create, RestMethod.GET, "text/plain", False),
                                           tab=tab)
-                    cls._generate_request(out, route=f"/{class_name}/_release",
-                                          api=API(clazz._release, RestMethod.GET, "text/plain", True),
+                    cls._generate_request(out, route=f"/{class_name}/expire",
+                                          api=API(clazz._expire, RestMethod.GET, "text/plain", True),
                                           tab=tab)
                 tab += "   "
                 for method, route_, api in routes:
@@ -421,7 +421,7 @@ class bantam {
 {tab}request.send(null);
 {tab}if (request.status === 200){{
 {tab}       this.self_id = request.responseText;
-{tab}}} else {{
+{tab}}} else {{alert(request.responseText)
 {tab}      throw request.stats;
 {tab}}}
 {tab[:-3]}}}

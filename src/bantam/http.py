@@ -80,6 +80,8 @@ payload of the request (not query parameters) as a simple JSON dictionary.
 
 """
 import asyncio
+from asyncio import Task
+
 import docutils.core
 import importlib
 import inspect
@@ -91,7 +93,6 @@ import types
 from aiohttp import web
 from aiohttp.web import (
     Application,
-    HostSequence,
     Request,
     Response,
     StreamResponse,
@@ -153,7 +154,17 @@ class WebApplication:
     _all_methods: List[API] = []
 
     class ObjectRepo:
+        DEFAULT_OBJECT_EXPIRATION: int = 60*60*2   # in seconds = 1 hour
+
         instances: Dict[str, Any] = {}
+        expiry: Dict[str, Task] = {}
+
+        @classmethod
+        async def expire_obj(cls, obj_id: str, new_lease_time: int):
+            if new_lease_time > 0:
+                await asyncio.sleep(new_lease_time)
+            del cls.instances[obj_id]
+            del cls.expiry[obj_id]
 
     class DuplicateRoute(Exception):
         """
@@ -191,10 +202,10 @@ class WebApplication:
         rst_out = self._static_path.joinpath('_developer_docs.rst')
         html_out = self._static_path.joinpath('_developer_docs.html')
 
-        def document_class(clazz, out):
-            docs = clazz.__doc__ or """<<no documentation provided>>"""
-            title = f"Resource: {clazz.__name__}"
-            out.write(f"""
+        def document_class(clazz_, doc_out):
+            docs = clazz_.__doc__ or """<<no documentation provided>>"""
+            title = f"Resource: {clazz_.__name__}"
+            doc_out.write(f"""
 {title}
 {'-'*len(title)}
 
@@ -285,7 +296,6 @@ class WebApplication:
         :param route: route to register under
         :param async_handler: the raw handler for handling an incoming Request and returning a Response
         :param api: the high-level deocrated web_api that will be invoked by the handler
-        :param content_type: http content-type header value
         """
         if route in WebApplication.routes_get or route in cls.routes_post:
             existing = WebApplication.callables_get.get(route) or WebApplication.callables_post.get(route)
@@ -305,7 +315,6 @@ class WebApplication:
         :param route: route to register under
         :param async_method: the raw handler for handling an incoming Request and returning a Response
         :param api: web api (decorated as @web_api) instance
-        :param content_type: http content-type header value
         """
         if route in WebApplication.routes_post or route in WebApplication.routes_get:
             existing = WebApplication.callables_get.get(route) or WebApplication.callables_post.get(route)
@@ -315,7 +324,7 @@ class WebApplication:
         WebApplication.callables_post[route] = api
 
     async def start(self,
-                    host: Optional[Union[str, HostSequence]] = None,
+                    host: Optional[str] = None,
                     port: Optional[int] = None,
                     path: Optional[str] = None,
                     shutdown_timeout: float = 60.0,
@@ -342,7 +351,7 @@ class WebApplication:
         """
         from aiohttp.web import _run_app as web_run_app
         for api in self._all_methods:
-            if api.name in ['_release']:
+            if api.name in ['_expire']:
                 continue
             mod = importlib.import_module(api.module)
             self._process_module_classes(mod, api)
@@ -399,49 +408,60 @@ class WebApplication:
 
     @classmethod
     def _process_module_classes(cls, mod: types.ModuleType, api: API):
-        def process_class(clazz: Type):
-            if hasattr(clazz, '_release') or hasattr(clazz, '_create'):
-                raise TypeError("Classes with @web_api applied cannot have methods named _release nor _create")
+        def process_class(clazz_: Type):
+            if hasattr(clazz_, '_expire') or hasattr(clazz_, '_create'):
+                raise TypeError("Classes with @web_api applied cannot have methods named _expire nor _create")
 
             # noinspection PyDecorator
             @staticmethod
             async def _create(*args, **kargs) -> str:
-                instance = clazz(*args, **kargs)
+                instance = clazz_(*args, **kargs)
                 self_id = str(instance).split(' ')[-1][:-1]
                 cls.ObjectRepo.instances[self_id] = instance
+                cls.ObjectRepo.expiry[self_id] = asyncio.create_task(cls.ObjectRepo.expire_obj(
+                    self_id, cls.ObjectRepo.DEFAULT_OBJECT_EXPIRATION))
                 return self_id
 
-            clazz._create = _create
-            clazz._create.__annotations__ = clazz.__init__.__annotations__
-            clazz._create.__annotations__['return'] = str
-            clazz._create.__doc__ = clazz.__init__.__doc__ if hasattr(clazz, '__init__') else f"""
-                Create an instance of {clazz.__name__} on server, returning a unique string id for the instnace.  
-                The instance will remain active until /{clazz.__name__}/_release is invoked.  The sting is used for 
+            clazz_._create = _create
+            clazz_._create.__annotations__ = clazz_.__init__.__annotations__
+            clazz_._create.__annotations__['return'] = str
+            clazz_._create.__doc__ = clazz_.__init__.__doc__ if hasattr(clazz_, '__init__') else f"""
+                Create an instance of {clazz_.__name__} on server, returning a unique string id for the instnace.  
+                The instance will remain active until /{clazz_.__name__}/expire is invoked.  The sting is used for 
                 instance-based ReST methods to act on the created instance on the server.
 
                 :return: unqiue string id of instance created
                 """
-            clazz._create.__qualname__ = f"{clazz.__name__}._create"
+            clazz_._create.__qualname__ = f"{clazz_.__name__}._create"
             # noinspection PyProtectedMember
-            cls._func_wrapper(clazz._create, is_instance_method=False, method=RestMethod.GET, content_type="text/plain")
+            cls._func_wrapper(clazz_._create, is_instance_method=False, method=RestMethod.GET, content_type="text/plain")
 
-            async def _release(self) -> None:
+            async def _expire(self, new_lease_time: int = cls.ObjectRepo.DEFAULT_OBJECT_EXPIRATION) -> None:
                 """
                 Release/close an instance on the server that was created through invocation of _create for the
                 associated resource
                 """
-                self_id = str(self).split(' ', maxsplit=1)[-1][:-1]
-                if self_id in cls.ObjectRepo.instances:
+                self_id = str(self).split(' ')[-1][:-1]
+                if self_id not in cls.ObjectRepo.instances:
+                    raise HTTPException(code=404, msg=f"No such object with id {self._id}")
+                cls.ObjectRepo.expiry[self_id].cancel()
+                if cls.ObjectRepo.instances and new_lease_time <= 0:
                     del cls.ObjectRepo.instances[self_id]
+                    del cls.ObjectRepo.expiry[self_id]
+                else:
+                    cls.ObjectRepo.expiry[self_id] = asyncio.create_task(
+                        cls.ObjectRepo.expire_obj(self_id, new_lease_time))
 
-            clazz._release = _release
-            clazz._release.__doc__ = _release.__doc__
-            clazz._release.__qualname__ = f"{clazz.__name__}._release"
+            clazz_._expire = _expire
+            clazz_._expire.__doc__ = _expire.__doc__
+            clazz_._expire.__name__ = 'expire'
+            clazz_._expire.__qualname__ = f"{clazz_.__name__}.expire"
 
             # noinspection PyProtectedMember
-            cls._func_wrapper(clazz._release, is_instance_method=True, method=RestMethod.GET, content_type="text/plain")
+            cls._func_wrapper(clazz_._expire, is_instance_method=True, method=RestMethod.GET, content_type="text/plain")
 
         for clazz in [cls for _, cls in inspect.getmembers(mod) if inspect.isclass(cls)]:
+            # noinspection PyProtectedMember
             method_found = any([item for item in inspect.getmembers(clazz) if item[1] == api._func])
             if method_found and api in cls._instance_methods:
                 if clazz not in cls._class_instance_methods:
@@ -476,7 +496,7 @@ class WebApplication:
             if not inspect.iscoroutinefunction(func) and not inspect.isasyncgenfunction(func):
                 raise ValueError("the @web_api decorator can only be applied to methods that are coroutines (async)")
         cls._all_methods.append(api)
-        name = api.qualname.replace('__init__', 'create').replace('._release', '.release')
+        name = api.qualname.replace('__init__', 'create').replace('._expire', '.expire')
         name_parts = name.split('.')[-2:]
         route = '/' + '/'.join(name_parts)
 
@@ -491,12 +511,12 @@ class WebApplication:
                 if method == RestMethod.GET:
                     # noinspection PyProtectedMember
                     response = await cls._invoke_get_api_wrapper(
-                        api, content_type=content_type, request=request, clazz=invoke.clazz, **addl_args
+                        api, content_type=content_type, request=request, **addl_args
                     )
                 elif method == RestMethod.POST:
                     # noinspection PyProtectedMember
                     response = await cls._invoke_post_api_wrapper(
-                        api, content_type=content_type, request=request, clazz=invoke.clazz, **addl_args
+                        api, content_type=content_type, request=request, **addl_args
                     )
                 else:
                     raise ValueError(f"Unknown method {method} in @web-api")
@@ -519,7 +539,7 @@ class WebApplication:
         return func
 
     @classmethod
-    async def _invoke_get_api_wrapper(cls, api: API, content_type: str, request: Request, clazz: Any,
+    async def _invoke_get_api_wrapper(cls, api: API, content_type: str, request: Request,
                                       **addl_args: Any) -> Union[Response, StreamResponse]:
         """
         Invoke the underlying GET web API from given request.  Called as part of setup in cls._func_wrapper
@@ -548,10 +568,11 @@ class WebApplication:
                 )
 
             # convert incoming str values to proper type:
-            kwargs = {k: _convert_request_param(v, api.arg_annotations[k]) for k, v in request.query.items()}
+            kwargs = {k: _convert_request_param(v, api.arg_annotations[k]) if k != 'self' else v
+                      for k, v in request.query.items()}
             if addl_args:
                 kwargs.update(addl_args)
-            if clazz:
+            if api.is_instance_method:
                 # we are invoking a class method, and need to lookup instance
                 self_id = kwargs.get('self')
                 if self_id is None:
@@ -604,7 +625,7 @@ class WebApplication:
             del cls._context[sys._getframe(0)]
 
     @classmethod
-    async def _invoke_post_api_wrapper(cls, api: API, content_type: str, request: Request, clazz: Any,
+    async def _invoke_post_api_wrapper(cls, api: API, content_type: str, request: Request,
                                        **addl_args: Any) -> Union[Response, StreamResponse]:
         """
         Invoke the underlying POST web API from given request. Called as part of setup in cls._func_wrapper
@@ -653,7 +674,7 @@ class WebApplication:
                     kwargs = {key: line_by_line_response(request)}
                 elif typ == AsyncChunkIterator:
                     kwargs = {key: streamed_bytes_arg_value(request)}
-                kwargs.update({k: _convert_request_param(v, api.synchronous_arg_annotations[k])
+                kwargs.update({k: _convert_request_param(v, api.synchronous_arg_annotations[k]) if k != 'self' else v
                                for k, v in request.query.items() if k in api.synchronous_arg_annotations})
             else:
                 # treat payload as json string:
@@ -748,6 +769,8 @@ def _serialize_return_value(value: Any, encoding: str) -> bytes:
     :return: bytes serialized from value
     """
     try:
+        if value is None:
+            return bytes()
         return to_str(value).encode(encoding)
     except Exception as e:
-        raise TypeError(f"Converting response from Python type {type(value)} to string: {e}")
+        raise TypeError(f"Converting response '{value}' from Python type '{type(value)}' to string: {e}")

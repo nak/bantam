@@ -182,7 +182,7 @@ class TestJavascriptGenerator:
         app.set_postprocessor(assert_postprocessor)
 
         async def launch_browser():
-            await asyncio.sleep(2.0)
+            await asyncio.sleep(1.0)
             browser = None
             try:
                 browser = webbrowser.get("chrome")

@@ -151,8 +151,8 @@ class JavascriptGenerator:
                     cls._generate_request(out, route=f"/{class_name}/_create",
                                           api=API(clazz._create, RestMethod.GET, "test/plain", False),
                                           tab=tab)
-                    cls._generate_request(out, route=f"/{class_name}/_release",
-                                          api=API(clazz._release, RestMethod.GET, "text/plain", True),
+                    cls._generate_request(out, route=f"/{class_name}/expire",
+                                          api=API(clazz._expire, RestMethod.GET, "text/plain", True),
                                           tab=tab)
                 for method, route_, api in routes:
                     cls._generate_request(out, route_, api, tab)

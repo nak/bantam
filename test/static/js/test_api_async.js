@@ -20,7 +20,7 @@ class TestRunner{
             let api = bantam.test.test_js_async.RestAPIExample;
             await sleep(5000);
             if (failed_count > 0){
-               alert("HERE");
+               alert("There were failed tests");
             }
             api.publish_result(function(a, b){}, function(a,b){},
                                failed_count==0?"PASSED":JSON.stringify(self.failed));
@@ -294,5 +294,6 @@ class TestRunner{
         } else {
             self.onsuccess(testname);
         }
+        await api.expire()
     }
 }
