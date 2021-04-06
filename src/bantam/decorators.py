@@ -50,7 +50,7 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
         if is_static:
             obj = obj.__func__
         if not inspect.ismethod(obj) and not inspect.isfunction(obj):
-            raise TypeError("@web_api should only be applies to class methods")
+            raise TypeError("@web_api should only be applied to class methods")
         if obj.__name__.startswith('_'):
             raise TypeError("names of web_api methods must not start with underscore")
         # noinspection PyProtectedMember

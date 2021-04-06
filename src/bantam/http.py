@@ -163,6 +163,8 @@ class WebApplication:
         async def expire_obj(cls, obj_id: str, new_lease_time: int):
             if new_lease_time > 0:
                 await asyncio.sleep(new_lease_time)
+            if hasattr(cls.instances[obj_id], '__aexist__'):
+                await cls.instances[obj_id].__aexit__(None, None, None)
             del cls.instances[obj_id]
             del cls.expiry[obj_id]
 
@@ -416,6 +418,8 @@ class WebApplication:
             @staticmethod
             async def _create(*args, **kargs) -> str:
                 instance = clazz_(*args, **kargs)
+                if hasattr(clazz_, '__aenter__'):
+                    await instance.__aenter__()
                 self_id = str(instance).split(' ')[-1][:-1]
                 cls.ObjectRepo.instances[self_id] = instance
                 cls.ObjectRepo.expiry[self_id] = asyncio.create_task(cls.ObjectRepo.expire_obj(
