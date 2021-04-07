@@ -269,8 +269,8 @@ class WebApplication:
         with open(css_file, 'w') as css_out:
             css_out.write(css)
         docutils.core.publish_file(
-            source_path=rst_out,
-            destination_path=html_out,
+            source_path=str(rst_out),
+            destination_path=str(html_out),
             writer_name="html",
             settings_overrides={'stylesheet_path': ','.join(["html4css1.css", str(css_file)])}
         )
@@ -468,7 +468,7 @@ class WebApplication:
             # noinspection PyProtectedMember
             method_found = any([item for item in inspect.getmembers(clazz) if item[1] == api._func])
             if method_found and api in cls._instance_methods:
-                if clazz not in cls._class_instance_methods:
+                if clazz not in cls._class_instance_methods or not cls._class_instance_methods.get(clazz):
                     process_class(clazz)
                 cls._class_instance_methods.setdefault(clazz, []).append(api)
                 cls._instance_methods_class_map[api] = clazz
