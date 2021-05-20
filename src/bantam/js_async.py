@@ -383,6 +383,8 @@ class bantam {
             streamed_param = None
         if hasattr(api.return_type, '__dataclass_fields__'):
             convert = "convert_complex"
+        elif str(response_type).startswith('typing.Dict') or str(response_type).startswith('typing.List'):
+            convert = "convert_complex"
         else:
             convert = {str: "convert_str",
                        int: "convert_int",

@@ -421,6 +421,8 @@ class JavascriptGenerator:
     def _generate_streamed_response(cls, response_type: Type, streamed_response: bool, callback: str, tab: str) -> str:
         if hasattr(response_type, '__dataclass_fields__'):
             convert = "JSON.parse(val)"
+        elif str(response_type).startswith('typing.Dict') or str(response_type).startswith('typing.List'):
+            convert = "JSON.parse(val)",
         else:
             convert = {str: "",
                        int: f"parseInt(val)",
