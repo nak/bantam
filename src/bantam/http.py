@@ -164,7 +164,8 @@ class WebApplication:
             if new_lease_time > 0:
                 await asyncio.sleep(new_lease_time)
             if hasattr(cls.instances[obj_id], '__aexit__'):
-                await cls.instances[obj_id].__aexit__(None, None, None)
+                with suppress(Exception):
+                    await cls.instances[obj_id].__aexit__(None, None, None)
             del cls.instances[obj_id]
             del cls.expiry[obj_id]
 
@@ -418,14 +419,14 @@ class WebApplication:
             @staticmethod
             async def _create(*args, **kargs) -> str:
                 if '__uuid' in kargs:
-                    del kargs['__uuid']
                     self_id = kargs['__uuid']
+                    del kargs['__uuid']
                     if self_id in cls.ObjectRepo.instances:
                         raise HTTPException(404, f"UUid {self_id} already in use. uuid's must be unique")
                 instance = clazz_(*args, **kargs)
                 if hasattr(clazz_, '__aenter__'):
                     await instance.__aenter__()
-                self_id = kargs.get('__uuid') or str(instance).split(' ')[-1][:-1]
+                self_id = self_id or str(instance).split(' ')[-1][:-1]
                 cls.ObjectRepo.instances[self_id] = instance
                 cls.ObjectRepo.expiry[self_id] = asyncio.create_task(cls.ObjectRepo.expire_obj(
                     self_id, cls.ObjectRepo.DEFAULT_OBJECT_EXPIRATION))
@@ -445,18 +446,18 @@ class WebApplication:
             # noinspection PyProtectedMember
             cls._func_wrapper(clazz_._create, is_instance_method=False, method=RestMethod.GET, content_type="text/plain")
 
-            async def _expire(self, new_lease_time: int = cls.ObjectRepo.DEFAULT_OBJECT_EXPIRATION) -> None:
+            async def _expire(self, new_lease_time: int = cls.ObjectRepo.DEFAULT_OBJECT_EXPIRATION,
+                              _uuid: Optional[str] = None) -> None:
                 """
                 Release/close an instance on the server that was created through invocation of _create for the
                 associated resource
                 """
-                self_id = str(self).split(' ')[-1][:-1]
+                self_id = _uuid or str(self).split(' ')[-1][:-1]
                 if self_id not in cls.ObjectRepo.instances:
-                    raise HTTPException(code=404, msg=f"No such object with id {self._id}")
+                    raise HTTPException(code=404, msg=f"No such object with id {self_id}")
                 cls.ObjectRepo.expiry[self_id].cancel()
                 if cls.ObjectRepo.instances and new_lease_time <= 0:
-                    del cls.ObjectRepo.instances[self_id]
-                    del cls.ObjectRepo.expiry[self_id]
+                    await cls.ObjectRepo.expire_obj(self_id, 0)
                 else:
                     cls.ObjectRepo.expiry[self_id] = asyncio.create_task(
                         cls.ObjectRepo.expire_obj(self_id, new_lease_time))
