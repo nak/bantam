@@ -88,6 +88,7 @@ import inspect
 import json
 import os
 import sys
+import traceback
 import types
 
 from aiohttp import web
@@ -321,7 +322,7 @@ class WebApplication:
         """
         if route in WebApplication.routes_post or route in WebApplication.routes_get:
             existing = WebApplication.callables_get.get(route) or WebApplication.callables_post.get(route)
-            raise WebApplication.DuplicateRoute(f"Route '{route}' associated with {api.module}.{func.name}"
+            raise WebApplication.DuplicateRoute(f"Route '{route}' associated with {api.module}.{api._func.__name__}"
                                                 f" already exists here {existing.module}.{existing.name} ")
         WebApplication.routes_post[route] = async_method
         WebApplication.callables_post[route] = api
@@ -625,11 +626,11 @@ class WebApplication:
                 return Response(status=200, body=result if result is not None else b"Success",
                                 content_type=content_type)
         except TypeError as e:
-            return Response(status=400, text=f"Improperly formatted query: {str(e)}")
+            return Response(status=400, text=f"Improperly formatted query: {str(e)}\n{traceback.format_exc()}")
         except HTTPException as e:
-            return Response(status=e.status_code, text=str(e))
+            return Response(status=e.status_code, text=f"{e}: \n{traceback.format_exc()}")
         except Exception as e:
-            return Response(status=500, text=str(e))
+            return Response(status=500, text=f"{e}: \n{traceback.format_exc()}")
         finally:
             # noinspection PyUnresolvedReferences,PyProtectedMember
             del cls._context[sys._getframe(0)]

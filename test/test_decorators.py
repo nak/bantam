@@ -1,7 +1,7 @@
 from typing import Any, Type, Dict
 
 import pytest
-from bantam.decorators import _convert_request_param, _invoke_get_api_wrapper, _invoke_post_api_wrapper
+from bantam.http import _convert_request_param, WebApplication
 from bantam.api import AsyncChunkIterator, AsyncLineIterator
 
 
@@ -102,7 +102,6 @@ class TestDecoratorUtils:
 
     @pytest.mark.parametrize("text,typ,value", [("True", bool, True), ("false", bool, False), ("18938", int, 18938),
                                                 ("1.2345", float, 1.2345), ("This is text", str, "This is text"),
-                                                ("12345", Deserialiazlbe, Deserialiazlbe(12345)),
                                                 ])
     def test_convert_request_param(self, text: str, typ: Type, value: Any):
         assert _convert_request_param(text, typ) == value
@@ -115,7 +114,7 @@ class TestDecoratorUtils:
             return "RESULT"
 
         request = MockRequestGet(param1=1, param2='text')
-        response = await _invoke_get_api_wrapper(func=func, content_type='text/plain', request=request)
+        response = await WebApplication._invoke_get_api_wrapper(func=func, content_type='text/plain', request=request)
         assert response.status == 200
         assert response.body == b"RESULT"
         assert response.text == "RESULT"
@@ -128,7 +127,7 @@ class TestDecoratorUtils:
             return "RESULT"
 
         request = MockRequestPost(param1=1, param2='text')
-        response = await _invoke_post_api_wrapper(func=func, content_type='text/plain', request=request)
+        response = await WebApplication._invoke_post_api_wrapper(func=func, content_type='text/plain', request=request)
         assert response.status == 200
         assert response.body == b"RESULT"
         assert response.text == "RESULT"
@@ -142,7 +141,7 @@ class TestDecoratorUtils:
             return "RESULT"
 
         request = MockRequestPostRaw(param1=param_value)
-        response = await _invoke_post_api_wrapper(func=func, content_type='text/plain', request=request)
+        response = await WebApplication._invoke_post_api_wrapper(func=func, content_type='text/plain', request=request)
         assert response.status == 200
         assert response.body == b"RESULT"
         assert response.text == "RESULT"
@@ -158,7 +157,7 @@ class TestDecoratorUtils:
             return all.decode('utf-8')
 
         request = MockRequestPostStream(param1=param_value)
-        response = await _invoke_post_api_wrapper(func=func, content_type='text/plain', request=request)
+        response = await WebApplication._invoke_post_api_wrapper(func=func, content_type='text/plain', request=request)
         assert response.status == 200
         assert response.body == param_value.replace(b'\n', b'')
         assert response.text == param_value.replace(b'\n', b'').decode('utf-8')
@@ -174,7 +173,7 @@ class TestDecoratorUtils:
             return all.decode('utf-8').upper()
 
         request = MockRequestPostStream(param1=param_value)
-        response = await _invoke_post_api_wrapper(func=func, content_type='text/plain', request=request)
+        response = await WebApplication._invoke_post_api_wrapper(func=func, content_type='text/plain', request=request)
         assert response.status == 200
         assert response.body == param_value.upper()
         assert response.text == param_value.upper().decode('utf-8')

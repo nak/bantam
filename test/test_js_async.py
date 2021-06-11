@@ -17,10 +17,10 @@ from bantam.api import AsyncLineIterator, RestMethod
 from bantam.http import WebApplication
 
 
-__all__ = ['ClassRestExample']
+__all__ = ['ClassRestExampleAsync']
 
 
-class ClassRestExample:
+class ClassRestExampleAsync:
     """
     HTTP resource for testing class with instance methods
     """
@@ -46,7 +46,7 @@ class ClassRestExample:
         return f"called basic post operation on instance {self._value}: {param1} {param2} {param3} {param4}"
 
 
-class RestAPIExample:
+class RestAPIExampleAsync:
     """
     HTTP resource for testing ReST examples, with all static methods
     """
@@ -160,7 +160,7 @@ class RestAPIExample:
     @web_api(content_type='text/plain', method=RestMethod.GET)
     @staticmethod
     async def publish_result(result: str) -> None:
-        await RestAPIExample.result_queue.put(result)
+        await RestAPIExampleAsync.result_queue.put(result)
 
 
 class TestJavascriptGenerator:
@@ -174,7 +174,7 @@ class TestJavascriptGenerator:
         def assert_postprocessor(response: Response) -> None:
             assert isinstance(response, Response), "Failed to get valid response for post-processing"
 
-        RestAPIExample.result_queue = asyncio.Queue()
+        RestAPIExampleAsync.result_queue = asyncio.Queue()
         root = Path(__file__).parent
         static_path = root.joinpath('static')
         app = WebApplication(static_path=static_path, js_bundle_name='generated', using_async=True)
@@ -196,7 +196,7 @@ class TestJavascriptGenerator:
                          b"UNABLE TO GET BROWSER SUPPORINT HEADLESS CONFIGURATION. DEFAULTING TO NON_HEADLESSS")
                 browser = webbrowser.get()
             browser.open("http://localhost:8080/static/index_async.html")
-            result = await RestAPIExample.result_queue.get()
+            result = await RestAPIExampleAsync.result_queue.get()
             await asyncio.sleep(2.0)
             await app.shutdown()
             return result
