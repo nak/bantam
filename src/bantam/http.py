@@ -419,6 +419,7 @@ class WebApplication:
             # noinspection PyDecorator
             @staticmethod
             async def _create(*args, **kargs) -> str:
+                self_id = None
                 if '__uuid' in kargs:
                     self_id = kargs['__uuid']
                     del kargs['__uuid']
@@ -427,7 +428,7 @@ class WebApplication:
                 instance = clazz_(*args, **kargs)
                 if hasattr(clazz_, '__aenter__'):
                     await instance.__aenter__()
-                self_id = self_id or str(instance).split(' ')[-1][:-1]
+                self_id = self_id or hex(id(instance))
                 cls.ObjectRepo.instances[self_id] = instance
                 cls.ObjectRepo.expiry[self_id] = asyncio.create_task(cls.ObjectRepo.expire_obj(
                     self_id, cls.ObjectRepo.DEFAULT_OBJECT_EXPIRATION))

@@ -17,7 +17,7 @@ def to_str(val: Any) -> str:
         return val
     elif type(val) in (int, float, bool):
         return str(val).lower()
-    elif type(val) in [dict, list]:
+    elif type(val) in [dict, list]or (getattr(type(val), '_name', None) in ('Dict', 'List', 'Mapping')):
         return json.dumps(val)
     raise TypeError(f"Type of value, '{type(val)}' is not supported in web api")
 
@@ -31,7 +31,7 @@ def from_str(image: str, typ: Type) -> Any:
         return typ(image)
     elif typ == bool:
         return image.lower() == 'true'
-    elif typ in (dict, list) or (getattr(typ, '_name', None) in ('Dict', 'List')):
+    elif typ in (dict, list) or (getattr(typ, '_name', None) in ('Dict', 'List', 'Mapping')):
         return json.loads(image)
     elif hasattr(typ, '__dataclass_fields__'):
         mapping = json.loads(image)
