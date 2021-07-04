@@ -105,7 +105,7 @@ class bantam {
             let stats = {status: result.status, statusText: statusBody};
             throw stats;
         }
-        return convert(result.text());
+        return convert(await result.text());
     }
     
     static async *fetch_GET_streamed(route, content_type, param_map, convert, return_is_bytes){
@@ -164,7 +164,7 @@ class bantam {
                 let stats = {status: result.status, statusText: statusBody};
                 throw stats;
             }
-            return convert(result.text());
+            return convert(await result.text());
         } catch (error) {
             if (error.message === 'Failed to fetch'){
                 throw new Error("Streamed requests not supported by this browser");

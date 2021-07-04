@@ -202,12 +202,12 @@ class TestJavascriptGenerator:
             return result
 
         try:
-            completed, _ = await asyncio.wait([app.start(), launch_browser()], timeout=10000000, return_when=asyncio.FIRST_COMPLETED)
+            completed, _ = await asyncio.wait([app.start(), launch_browser()], timeout=10, return_when=asyncio.FIRST_COMPLETED)
             results = [c.result() for c in completed if c is not None]
         except Exception as e:
             assert False, f"Exception processing javascript results: {traceback.format_exc()}"
         if any([isinstance(r, Exception) for r in results]):
             assert False, "At least one javascript test failed. See browser window for details"
         assert results[0] == "PASSED", \
-            "FAILED JAVSSCRIPT TESTS FOUND: \n" + \
+            "FAILED JAVASCRIPT TESTS FOUND: \n" + \
             "\n".join([f"{test}: {msg}" for test, msg in json.loads(results[0]).items()])
