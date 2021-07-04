@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Callable, Awaitable, AsyncGenerator, Dict
+from typing import Callable, Awaitable, AsyncGenerator, Dict, List, Optional
 
 AsyncChunkIterator = Callable[[int], Awaitable[AsyncGenerator[None, bytes]]]
 AsyncLineIterator = AsyncGenerator[None, str]
@@ -12,9 +12,12 @@ class RestMethod(Enum):
 
 class API:
 
-    def __init__(self, func, method: RestMethod, content_type: str, is_instance_method: bool):
+    def __init__(self, clazz, func, method: RestMethod, content_type: str, is_instance_method: bool,
+                 is_constructor: bool, expire_on_exit: bool = False, uuid_param: Optional[str] = None):
         annotations = func.__annotations__
+        self._clazz = clazz
         self._is_instance_method = is_instance_method
+        self._expire_obj = expire_on_exit
         self._func = func
         self._method = method
         if 'return' not in annotations:
@@ -34,21 +37,41 @@ class API:
             self._return_type = self._return_type.__args__[1]
             self._has_streamed_response = True
         self._content_type = content_type if not self.has_streamed_response else 'text/streamed; charset=x-user-defined'
+        self._is_constructor = is_constructor
+        if is_constructor:
+            self._return_type = str
+        self._uuid_param = uuid_param
 
     @property
-    def name(self):
+    def clazz(self):
+        return self._clazz
+
+    @property
+    def name(self) -> str:
         return self._func.__name__
 
     @property
-    def qualname(self):
+    def qualname(self) -> str:
         return self._func.__qualname__
 
     @property
-    def module(self):
+    def expire_object(self) -> bool:
+        return self._expire_obj
+
+    @property
+    def is_constructor(self) -> bool:
+        return self._is_constructor
+
+    @property
+    def uuid_param(self) -> Optional[str]:
+        return self._uuid_param
+
+    @property
+    def module(self) -> str:
         return self._func.__module__
 
     @property
-    def doc(self):
+    def doc(self) -> str:
         return self._func.__doc__
 
     @property
@@ -56,11 +79,11 @@ class API:
         return self._method
 
     @property
-    def is_instance_method(self):
+    def is_instance_method(self) -> bool:
         return self._is_instance_method
 
     @property
-    def content_type(self):
+    def content_type(self) -> str:
         return self._content_type
 
     @property
@@ -68,11 +91,11 @@ class API:
         return self._arg_annotations
 
     @property
-    def async_arg_annotations(self):
+    def async_arg_annotations(self) -> Dict[str, str]:
         return self._async_arg_annotations
 
     @property
-    def synchronous_arg_annotations(self):
+    def synchronous_arg_annotations(self) -> List[str]:
         return [a for a in self._arg_annotations if a not in self._async_arg_annotations]
 
     @property

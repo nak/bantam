@@ -420,8 +420,8 @@ class WebApplication:
             @staticmethod
             async def _create(*args, **kargs) -> str:
                 self_id = None
-                if '__uuid' in kargs:
-                    self_id = kargs['__uuid']
+                if '__uuid' in kargs or (api.uuid_param is not None and api.uuid_param in kargs):
+                    self_id = kargs[api.uuid_param] if api.uuuid_param is not None else kargs['__uuid']
                     del kargs['__uuid']
                     if self_id in cls.ObjectRepo.instances:
                         raise HTTPException(404, f"UUid {self_id} already in use. uuid's must be unique")
@@ -435,8 +435,12 @@ class WebApplication:
                 return self_id
 
             clazz_._create = _create
-            clazz_._create.__annotations__ = clazz_.__init__.__annotations__
+            if hasattr(clazz_, '__init__') and hasattr(clazz_.__init__, '__annotations__'):
+                clazz_._create.__annotations__ = clazz_.__init__.__annotations__ if hasattr(clazz_, '__init__') else {}
+            else:
+                clazz._create.__annotations__ = {}
             clazz_._create.__annotations__['return'] = str
+
             clazz_._create.__doc__ = clazz_.__init__.__doc__ if hasattr(clazz_, '__init__') else f"""
                 Create an instance of {clazz_.__name__} on server, returning a unique string id for the instnace.  
                 The instance will remain active until /{clazz_.__name__}/expire is invoked.  The sting is used for 
@@ -446,7 +450,8 @@ class WebApplication:
                 """
             clazz_._create.__qualname__ = f"{clazz_.__name__}._create"
             # noinspection PyProtectedMember
-            cls._func_wrapper(clazz_._create, is_instance_method=False, method=RestMethod.GET, content_type="text/plain")
+            cls._func_wrapper(clazz, clazz_._create, is_instance_method=False, is_constructor=True, expire_on_exit=False,
+                              method=RestMethod.GET, content_type="text/plain")
 
             async def _expire(self, new_lease_time: int = cls.ObjectRepo.DEFAULT_OBJECT_EXPIRATION,
                               _uuid: Optional[str] = None) -> None:
@@ -470,25 +475,35 @@ class WebApplication:
             clazz_._expire.__qualname__ = f"{clazz_.__name__}.expire"
 
             # noinspection PyProtectedMember
-            cls._func_wrapper(clazz_._expire, is_instance_method=True, method=RestMethod.GET, content_type="text/plain")
+            cls._func_wrapper(clazz, clazz_._expire, is_instance_method=True, expire_on_exit=False,
+                              is_constructor=False, method=RestMethod.GET, content_type="text/plain")
 
         for clazz in [cls for _, cls in inspect.getmembers(mod) if inspect.isclass(cls)]:
             # noinspection PyProtectedMember
             method_found = any([item for item in inspect.getmembers(clazz) if item[1] == api._func])
-            if method_found and api in cls._instance_methods:
+            if method_found:
+                api._clazz = clazz
+            if method_found and (api in cls._instance_methods or api.is_constructor):
                 if clazz not in cls._class_instance_methods or not cls._class_instance_methods.get(clazz):
                     process_class(clazz)
                 cls._class_instance_methods.setdefault(clazz, []).append(api)
                 cls._instance_methods_class_map[api] = clazz
-                break
+                if api.is_constructor:
+                    if api._func.__annotations__.get('return') != clazz.__name__:
+                        raise TypeError("@web_api's declared as constructors must return that class's type")
             elif method_found and api in cls._all_methods:
+                if api.is_constructor:
+                    if api._func.__annotations__.get('return') != clazz.__name__:
+                        raise TypeError("@web_api's declared as constructors must return that class's type")
                 cls._class_instance_methods.setdefault(clazz, [])  # create an empty list of instance methods at least
-                break
 
     @classmethod
-    def _func_wrapper(cls, func: WebApi, is_instance_method: bool,
+    def _func_wrapper(cls, clazz, func: WebApi, is_instance_method: bool,
+                      is_constructor: bool,
+                      expire_on_exit: bool,
                       method: RestMethod,
                       content_type: str,
+                      uuid_param: Optional[str] = None,
                       preprocess: Optional[PreProcessor] = None,
                       postprocess: Optional[PostProcessor] = None) -> WebApi:
         """
@@ -498,7 +513,8 @@ class WebApplication:
         :param clazz: if function is instance method, provide owning class, otherwise None
         :return: function back, having processed as a web api and registered the route
         """
-        api = API(func, method, content_type, is_instance_method)
+        api = API(clazz, func, method=method, content_type=content_type, is_instance_method=is_instance_method,
+                  is_constructor=is_constructor, expire_on_exit=expire_on_exit, uuid_param=uuid_param)
         if is_instance_method:
             if not inspect.iscoroutinefunction(func) and not inspect.isasyncgenfunction(func):
                 raise ValueError("the @web_api decorator can only be applied to classes with public "
@@ -712,6 +728,8 @@ class WebApplication:
                     raise ValueError(f"No instance id found for request {self_id}")
                 del kwargs['self']
                 awaitable = api(instance, **kwargs)
+                if api.expire_object:
+                    del cls.ObjectRepo.instances[self_id]
             else:
                 awaitable = api(**kwargs)
             if inspect.isasyncgen(awaitable):

@@ -52,6 +52,11 @@ class RestAPIExampleAsync:
     """
     result_queue: Optional[asyncio.Queue] = None
 
+    @web_api(content_type='text/plain', method=RestMethod.GET, is_constructor=True, uuid_param='uuid')
+    @staticmethod
+    async def explicit_constructor(uuid: str) -> "RestAPIExampleAsync":
+        return RestAPIExampleAsync()
+
     @web_api(content_type='text/plain', method=RestMethod.GET)
     @staticmethod
     async def api_get_basic(param1: int, param2: bool, param3: float, param4: str = "text", param5: Dict[str, float] = {'f1': 1.0, 'f2': 2.0}) -> str:
@@ -202,7 +207,7 @@ class TestJavascriptGenerator:
             return result
 
         try:
-            completed, _ = await asyncio.wait([app.start(), launch_browser()], timeout=10, return_when=asyncio.FIRST_COMPLETED)
+            completed, _ = await asyncio.wait([app.start(), launch_browser()], timeout=100000, return_when=asyncio.FIRST_COMPLETED)
             results = [c.result() for c in completed if c is not None]
         except Exception as e:
             assert False, f"Exception processing javascript results: {traceback.format_exc()}"

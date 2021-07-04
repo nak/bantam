@@ -16,6 +16,9 @@ PostProcessor = Callable[[Union[Response, StreamResponse]], Union[Response, Stre
 
 
 def web_api(content_type: str, method: RestMethod = RestMethod.GET,
+            is_constructor: bool = False,
+            expire_obj: bool = False,
+            uuid_param: Optional[str] = None,
             preprocess: Optional[PreProcessor] = None,
             postprocess: Optional[PostProcessor] = None) -> Callable[[WebApi], WebApi]:
     """
@@ -39,6 +42,8 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
 
     :param content_type: content type to disply (e.g., "text/html")
     :param method: one of MethodEnum rest api methods (GET or POST)
+    :param is_constructor: set to True if API is static method return a class instnace, False oherwise (default)
+    :param expire_obj: for instance methods only, epxire the object upon successful completion of that call
     :return: callable decorator
     """
     from .http import WebApplication
@@ -47,6 +52,10 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
 
     def wrapper(obj: Union[WebApi, staticmethod]):
         is_static = isinstance(obj, staticmethod)
+        if not is_static and is_constructor:
+            raise TypeError("@web_api's that are declared constructors must be static methods")
+        if is_static and expire_obj:
+            raise TypeError("@web_api's expire_obj param can only be set True for instance methods")
         if is_static:
             obj = obj.__func__
         if not inspect.ismethod(obj) and not inspect.isfunction(obj):
@@ -56,9 +65,14 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
         # noinspection PyProtectedMember
         # clazz = WebApplication._instance_methods_class_map[obj] if not isinstance(obj, staticmethod) else None
 
-        return WebApplication._func_wrapper(obj, not is_static,
+        return WebApplication._func_wrapper(None,
+                                            obj,
+                                            is_instance_method=not is_static,
                                             method=method,
                                             content_type=content_type,
+                                            is_constructor=is_constructor,
+                                            expire_on_exit=expire_obj,
+                                            uuid_param=uuid_param,
                                             preprocess=preprocess,
                                             postprocess=postprocess)
 

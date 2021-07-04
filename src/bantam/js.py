@@ -149,10 +149,12 @@ class JavascriptGenerator:
                 if class_name in clazz_map:
                     clazz = clazz_map[class_name]
                     cls._generate_request(out, route=f"/{class_name}/_create",
-                                          api=API(clazz._create, RestMethod.GET, "test/plain", False),
+                                          api=API(clazz, clazz._create, method=RestMethod.GET, content_type="test/plain",
+                                                  is_instance_method=False, is_constructor=True, expire_on_exit=False),
                                           tab=tab)
                     cls._generate_request(out, route=f"/{class_name}/expire",
-                                          api=API(clazz._expire, RestMethod.GET, "text/plain", True),
+                                          api=API(clazz, clazz._expire, method=RestMethod.GET, content_type="text/plain",
+                                                  is_instance_method=True, is_constructor=False, expire_on_exit=False),
                                           tab=tab)
                 for method, route_, api in routes:
                     cls._generate_request(out, route_, api, tab)

@@ -58,11 +58,11 @@ async generators/iterator usage.
 """
 import re
 from aiohttp.web_response import Response, StreamResponse
-from typing import Coroutine, Callable, Awaitable, Union
+from typing import Callable, Awaitable, Union
 from typing import Dict, Tuple, List, IO, Type
 from urllib.request import Request
 
-from bantam.api import AsyncChunkIterator, AsyncLineIterator, API, APIDoc, RestMethod
+from bantam.api import API, APIDoc, RestMethod
 
 AsyncApi = Callable[[Request], Awaitable[Union[Response, StreamResponse]]]
 
@@ -75,7 +75,16 @@ class JavascriptGeneratorAsync:
     ENCODING = 'utf-8'
 
     BANTAM_CORE = """
+
+class batnam_UUID{
+    constructor(uuid){
+        this.uuid = uuid;
+    }
+}
+
+
 class bantam {
+
     
     static compute_query(param_map){
         let c = '?';
@@ -325,15 +334,20 @@ class bantam {
                 process_namespace(child_ns, parent_name + '.' + name_)
             for class_name, routes in ns.classes.items():
                 out.write(f"\n{parent_name}.{class_name} = class {{\n".encode(cls.ENCODING))
-                clazz_map = {c.__name__ : c for c in WebApplication._class_instance_methods
+                clazz_map = {c.__name__: c for c in WebApplication._class_instance_methods
                              if WebApplication._class_instance_methods[c]}
+                for api in [api for api in WebApplication._all_methods if api.qualname.startswith(class_name) and api.clazz is not None]:
+                    if api.is_constructor:
+                        clazz_map[api.clazz.__name__] = api.clazz
                 if class_name in clazz_map:
                     clazz = clazz_map[class_name]
                     cls._generate_request(out, route=f"/{class_name}/_create",
-                                          api=API(clazz._create, RestMethod.GET, "text/plain", False),
+                                          api=API(clazz, clazz._create, method=RestMethod.GET, content_type="text/plain",
+                                                  is_instance_method=False, is_constructor=True, expire_on_exit=False),
                                           tab=tab)
                     cls._generate_request(out, route=f"/{class_name}/expire",
-                                          api=API(clazz._expire, RestMethod.GET, "text/plain", True),
+                                          api=API(clazz, clazz._expire, method=RestMethod.GET, content_type="text/plain",
+                                                  is_instance_method=True, is_constructor=False, expire_on_exit=False),
                                           tab=tab)
                 tab += "   "
                 for method, route_, api in routes:
@@ -367,10 +381,15 @@ class bantam {
         out.write(b'\n')
         out.write(api_doc.encode('utf-8'))
         argnames = list(api.arg_annotations.keys())
-        if api.name == '_create':
-            out.write(
-                f"{tab}constructor({', '.join(argnames)}) {{\n".encode(
-                    cls.ENCODING))
+        if api.is_constructor:
+            if api.name == '_create':
+                out.write(
+                    f"{tab}constructor({', '.join(argnames)}{', ' if argnames else ''} _____uuid_____) {{\n".encode(
+                        cls.ENCODING))
+            else:
+                out.write(
+                    f"{tab}static async {api.name}({', '.join(argnames)}) {{\n".encode(
+                        cls.ENCODING))
         else:
             name = api.name if not api.name.startswith('_') else api.name[1:]
             static_text = "" if api.is_instance_method else "static "
@@ -403,6 +422,8 @@ class bantam {
 {self_param_code}{param_code}
 {tab}}}"""
         out.write(param_code.encode('utf-8'))
+        if api.name == '_create':
+            assert api.is_constructor
         if api.has_streamed_response:
             out.write(f"""
 {tab}for await (var chunk of bantam.fetch_{api.method.value}_streamed("{route}",
@@ -415,19 +436,40 @@ class bantam {
 {tab}}}
 {tab[:-3]}}}
 """.encode('utf-8'))
-        elif api.name == '_create':
-            out.write(f"""
+        elif api.is_constructor:
+            if api.name == '_create':
+                out.write(f"""
+{tab}if (typeof(_____uuid_____) !== "undefined"){{
+{tab}    this.self_id = _____uuid_____.uuid;
+{tab}}} else {{
+{tab}    let request = new XMLHttpRequest();
+{tab}    request.open("GET","{route}" + bantam.compute_query(params), false);
+{tab}    request.setRequestHeader('Content-Type', "{api.content_type}");
+{tab}    request.send(null);
+{tab}    if (request.status === 200){{
+{tab}           this.self_id = request.responseText;
+{tab}    }} else {{alert(request.responseText)
+{tab}          throw request.stats;
+{tab}    }}
+{tab}}}
+{tab[:-3]}}}
+    """.encode('utf-8'))
+            else:
+                out.write(f"""
 {tab}let request = new XMLHttpRequest();
 {tab}request.open("GET","{route}" + bantam.compute_query(params), false);
 {tab}request.setRequestHeader('Content-Type', "{api.content_type}");
 {tab}request.send(null);
 {tab}if (request.status === 200){{
-{tab}       this.self_id = request.responseText;
+{tab}       self_id = request.responseText;
 {tab}}} else {{alert(request.responseText)
 {tab}      throw request.stats;
 {tab}}}
-{tab[:-3]}}}
 """.encode('utf-8'))
+                out.write(f"""
+{tab}return  {api.qualname.split('.')[0]}({','.join(['null' for _ in argnames])}{', ' if argnames else ''}bantam_UUID(self_id));
+{tab[:-3]}}}
+                """.encode('utf-8'))
         else:
             out.write(f"""
 {tab}return await bantam.fetch_{api.method.value}("{route}", "{api.content_type}", params,
