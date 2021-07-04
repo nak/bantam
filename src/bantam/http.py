@@ -158,6 +158,7 @@ class WebApplication:
         DEFAULT_OBJECT_EXPIRATION: int = 60*60*2   # in seconds = 1 hour
 
         instances: Dict[str, Any] = {}
+        by_instance: Dict[Any, str] = {}
         expiry: Dict[str, Task] = {}
 
         @classmethod
@@ -430,6 +431,7 @@ class WebApplication:
                     await instance.__aenter__()
                 self_id = self_id or hex(id(instance))
                 cls.ObjectRepo.instances[self_id] = instance
+                cls.ObjectRepo.by_instance[instance] = self_id
                 cls.ObjectRepo.expiry[self_id] = asyncio.create_task(cls.ObjectRepo.expire_obj(
                     self_id, cls.ObjectRepo.DEFAULT_OBJECT_EXPIRATION))
                 return self_id
@@ -459,7 +461,7 @@ class WebApplication:
                 Release/close an instance on the server that was created through invocation of _create for the
                 associated resource
                 """
-                self_id = _uuid or str(self).split(' ')[-1][:-1]
+                self_id = cls.ObjectRepo.by_instance.get(self)
                 if self_id not in cls.ObjectRepo.instances:
                     raise HTTPException(code=404, msg=f"No such object with id {self_id}")
                 cls.ObjectRepo.expiry[self_id].cancel()
@@ -491,6 +493,18 @@ class WebApplication:
                 if api.is_constructor:
                     if api._func.__annotations__.get('return') != clazz.__name__:
                         raise TypeError("@web_api's declared as constructors must return that class's type")
+
+                if api.expire_object:
+                    async def wrapped(self, *args, **kargs):
+                        try:
+                            return await api._func(self, *args, **kargs)
+                        finally:
+                            if self in cls.ObjectRepo.by_instance:
+                                uuid = cls.ObjectRepo.by_instance[self]
+                                del cls.ObjectRepo.by_instance[self]
+                                del cls.ObjectRepo.instances[uuid]
+
+                    setattr(clazz, api.name, wrapped)
             elif method_found and api in cls._all_methods:
                 if api.is_constructor:
                     if api._func.__annotations__.get('return') != clazz.__name__:
@@ -613,7 +627,11 @@ class WebApplication:
                 result = api(instance, **kwargs)
             else:
                 # call the underlying function:
-                result = api(**kwargs)
+                result = await api(**kwargs)
+                if api.is_constructor:
+                    uuid = kwargs.get(api.uuid_param) or hex(id(result))
+                    cls.ObjectRepo.instances[uuid] = result
+                    cls.ObjectRepo.by_instance[result] = uuid
             if inspect.isasyncgen(result):
                 #################
                 #  streamed response through async generator:
@@ -639,7 +657,13 @@ class WebApplication:
                 #################
                 #  regular response
                 #################
-                result = _serialize_return_value(await result, encoding)
+                if api.is_constructor:
+                    try:
+                        result = cls.ObjectRepo.by_instance[result]
+                    except KeyError:
+                        raise SyntaxError("No uuid set for created instance")
+                else:
+                    result = _serialize_return_value(result, encoding)
                 return Response(status=200, body=result if result is not None else b"Success",
                                 content_type=content_type)
         except TypeError as e:

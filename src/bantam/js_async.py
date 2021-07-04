@@ -76,7 +76,7 @@ class JavascriptGeneratorAsync:
 
     BANTAM_CORE = """
 
-class batnam_UUID{
+class bantam_UUID{
     constructor(uuid){
         this.uuid = uuid;
     }
@@ -384,7 +384,7 @@ class bantam {
         if api.is_constructor:
             if api.name == '_create':
                 out.write(
-                    f"{tab}constructor({', '.join(argnames)}{', ' if argnames else ''} _____uuid_____) {{\n".encode(
+                    f"{tab}constructor({', '.join(argnames)}) {{\n".encode(
                         cls.ENCODING))
             else:
                 out.write(
@@ -439,8 +439,8 @@ class bantam {
         elif api.is_constructor:
             if api.name == '_create':
                 out.write(f"""
-{tab}if (typeof(_____uuid_____) !== "undefined"){{
-{tab}    this.self_id = _____uuid_____.uuid;
+{tab}if (arguments[0] instanceof bantam_UUID){{
+{tab}    this.self_id = arguments[0].uuid;
 {tab}}} else {{
 {tab}    let request = new XMLHttpRequest();
 {tab}    request.open("GET","{route}" + bantam.compute_query(params), false);
@@ -460,14 +460,15 @@ class bantam {
 {tab}request.open("GET","{route}" + bantam.compute_query(params), false);
 {tab}request.setRequestHeader('Content-Type', "{api.content_type}");
 {tab}request.send(null);
+{tab}let self_id
 {tab}if (request.status === 200){{
-{tab}       self_id = request.responseText;
+{tab}    self_id = request.responseText;
 {tab}}} else {{alert(request.responseText)
-{tab}      throw request.stats;
+{tab}    throw request.stats;
 {tab}}}
 """.encode('utf-8'))
                 out.write(f"""
-{tab}return  {api.qualname.split('.')[0]}({','.join(['null' for _ in argnames])}{', ' if argnames else ''}bantam_UUID(self_id));
+{tab}return new {api.qualname.split('.')[0]}(new bantam_UUID(self_id));
 {tab[:-3]}}}
                 """.encode('utf-8'))
         else:
