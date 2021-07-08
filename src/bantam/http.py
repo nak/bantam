@@ -624,7 +624,7 @@ class WebApplication:
                 if instance is None:
                     raise ValueError(f"No instance found for request with 'self' id of {self_id}")
                 del kwargs['self']
-                result = await api(instance, **kwargs)
+                result = api(instance, **kwargs)
             else:
                 # call the underlying function:
                 result = api(**kwargs)

@@ -9,6 +9,7 @@ setuptools.setup(
     author='John Rusnak',
     author_email='john.j.rusnak@att.net',
     version=VERSION,
+
     description="small utils to automate web interface in Python",
     package_dir={'': 'src'},
     packages=setuptools.find_packages('src'),
