@@ -429,12 +429,7 @@ class WebApplication:
                 instance = clazz_(*args, **kargs)
                 if hasattr(clazz_, '__aenter__'):
                     await instance.__aenter__()
-                self_id = self_id or hex(id(instance))
-                cls.ObjectRepo.instances[self_id] = instance
-                cls.ObjectRepo.by_instance[instance] = self_id
-                cls.ObjectRepo.expiry[self_id] = asyncio.create_task(cls.ObjectRepo.expire_obj(
-                    self_id, cls.ObjectRepo.DEFAULT_OBJECT_EXPIRATION))
-                return self_id
+                return instance
 
             clazz_._create = _create
             if hasattr(clazz_, '__init__') and hasattr(clazz_.__init__, '__annotations__'):
@@ -658,10 +653,9 @@ class WebApplication:
                     uuid = kwargs.get(api.uuid_param) or hex(id(result))
                     cls.ObjectRepo.instances[uuid] = result
                     cls.ObjectRepo.by_instance[result] = uuid
-                    try:
-                        result = uuid
-                    except KeyError:
-                        raise SyntaxError("No uuid set for created instance")
+                    cls.ObjectRepo.expiry[uuid] = asyncio.create_task(cls.ObjectRepo.expire_obj(
+                    uuid, cls.ObjectRepo.DEFAULT_OBJECT_EXPIRATION))
+                    result = uuid
                 else:
                     result = _serialize_return_value(result, encoding)
                 return Response(status=200, body=result if result is not None else b"Success",
