@@ -627,11 +627,7 @@ class WebApplication:
                 result = api(instance, **kwargs)
             else:
                 # call the underlying function:
-                result = await api(**kwargs)
-                if api.is_constructor:
-                    uuid = kwargs.get(api.uuid_param) or hex(id(result))
-                    cls.ObjectRepo.instances[uuid] = result
-                    cls.ObjectRepo.by_instance[result] = uuid
+                result = api(**kwargs)
             if inspect.isasyncgen(result):
                 #################
                 #  streamed response through async generator:
@@ -657,9 +653,13 @@ class WebApplication:
                 #################
                 #  regular response
                 #################
+                result = await result
                 if api.is_constructor:
+                    uuid = kwargs.get(api.uuid_param) or hex(id(result))
+                    cls.ObjectRepo.instances[uuid] = result
+                    cls.ObjectRepo.by_instance[result] = uuid
                     try:
-                        result = cls.ObjectRepo.by_instance[result]
+                        result = uuid
                     except KeyError:
                         raise SyntaxError("No uuid set for created instance")
                 else:
