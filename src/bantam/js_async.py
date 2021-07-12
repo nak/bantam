@@ -455,6 +455,10 @@ class bantam {
 {tab[:-3]}}}
     """.encode('utf-8'))
             else:
+                if hasattr(api.clazz, 'jsonrepr'):
+                    response_text = f"JSON.parse(request.responseText)[\"{api.uuid_param}\"]"
+                else:
+                    response_text = "request.responseText"
                 out.write(f"""
 {tab}let request = new XMLHttpRequest();
 {tab}request.open("GET","{route}" + bantam.compute_query(params), false);
@@ -462,8 +466,8 @@ class bantam {
 {tab}request.send(null);
 {tab}let self_id
 {tab}if (request.status === 200){{
-{tab}    self_id = request.responseText;
-{tab}}} else {{alert(request.responseText)
+{tab}    self_id = {response_text};
+{tab}}} else {{alert(request.responseText )
 {tab}    throw request.stats;
 {tab}}}
 """.encode('utf-8'))

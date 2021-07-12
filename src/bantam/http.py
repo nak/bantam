@@ -611,7 +611,7 @@ class WebApplication:
                 kwargs.update(addl_args)
             if api.is_instance_method:
                 # we are invoking a class method, and need to lookup instance
-                self_id = kwargs.get('self')
+                self_id = kwargs.get('self').replace('\\', '')
                 if self_id is None:
                     raise ValueError(
                         "A self request parameter is needed. No instance provided for call to instance method")
@@ -649,13 +649,20 @@ class WebApplication:
                 #  regular response
                 #################
                 result = await result
+                instance = result
                 if api.is_constructor:
-                    uuid = kwargs.get(api.uuid_param) or hex(id(result))
-                    cls.ObjectRepo.instances[uuid] = result
-                    cls.ObjectRepo.by_instance[result] = uuid
+                    if hasattr(api.clazz, 'jsonrepr'):
+                        repr = api.clazz.jsonrepr(result)
+                        uuid = repr.get(api.uuid_param)
+                        content_type = 'application/json'
+                        result = json.dumps(repr)
+                    else:
+                        uuid = kwargs.get(api.uuid_param) or hex(id(result))
+                        result = uuid
+                    cls.ObjectRepo.instances[uuid] = instance
+                    cls.ObjectRepo.by_instance[instance] = uuid
                     cls.ObjectRepo.expiry[uuid] = asyncio.create_task(cls.ObjectRepo.expire_obj(
                     uuid, cls.ObjectRepo.DEFAULT_OBJECT_EXPIRATION))
-                    result = uuid
                 else:
                     result = _serialize_return_value(result, encoding)
                 return Response(status=200, body=result if result is not None else b"Success",
