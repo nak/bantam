@@ -651,6 +651,8 @@ class WebApplication:
                 result = await result
                 instance = result
                 if api.is_constructor:
+                    if api.clazz and hasattr(api.clazz, '__aenter__'):
+                        await instance.__aenter__()
                     if hasattr(api.clazz, 'jsonrepr'):
                         repr = api.clazz.jsonrepr(result)
                         uuid = repr.get(api.uuid_param)
@@ -662,7 +664,7 @@ class WebApplication:
                     cls.ObjectRepo.instances[uuid] = instance
                     cls.ObjectRepo.by_instance[instance] = uuid
                     cls.ObjectRepo.expiry[uuid] = asyncio.create_task(cls.ObjectRepo.expire_obj(
-                    uuid, cls.ObjectRepo.DEFAULT_OBJECT_EXPIRATION))
+                        uuid, cls.ObjectRepo.DEFAULT_OBJECT_EXPIRATION))
                 else:
                     result = _serialize_return_value(result, encoding)
                 return Response(status=200, body=result if result is not None else b"Success",
