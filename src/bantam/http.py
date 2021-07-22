@@ -651,7 +651,7 @@ class WebApplication:
                 result = await result
                 instance = result
                 if api.is_constructor:
-                    if api.clazz and hasattr(api.clazz, '__aenter__'):
+            n        if api.clazz and hasattr(api.clazz, '__aenter__'):
                         await instance.__aenter__()
                     if hasattr(api.clazz, 'jsonrepr'):
                         repr = api.clazz.jsonrepr(result)
