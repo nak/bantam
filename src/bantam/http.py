@@ -57,7 +57,8 @@ to display various salutiations.
 
 To explain this code, the *@web_api* decorator declares a method that is mapped to a route. The route is determined
 by the class name, in this case *Greetings*, and the method name. Thus, the "welcome" method above, as a member of
-*Greetings* class, is mapped to the route '/Greetings/welcome".  There are some rules about methods declared as *@web_api*:
+*Greetings* class, is mapped to the route '/Greetings/welcome".  There are some rules about methods declared
+as *@web_api*:
 
 #. They must be @staticmethod's.
 #. They must provide all type hints for parameters and return value,
@@ -239,7 +240,7 @@ class WebApplication:
         if html_out.exists():
             os.remove(html_out)
         css = """
-        
+
         h2{
             margin: 1em 0 .6em 0;
             font-weight: normal;
@@ -263,7 +264,6 @@ class WebApplication:
             letter-spacing: 1px;
             font-style: italic;font-size: 90%; background-color: #fed8b1;
         }
-        
         """
         css_dir: Path = self._static_path.joinpath('css')
         if not css_dir.exists():
@@ -439,16 +439,16 @@ class WebApplication:
             clazz_._create.__annotations__['return'] = str
 
             clazz_._create.__doc__ = clazz_.__init__.__doc__ if hasattr(clazz_, '__init__') else f"""
-                Create an instance of {clazz_.__name__} on server, returning a unique string id for the instnace.  
-                The instance will remain active until /{clazz_.__name__}/expire is invoked.  The sting is used for 
+                Create an instance of {clazz_.__name__} on server, returning a unique string id for the instance.
+                The instance will remain active until /{clazz_.__name__}/expire is invoked.  The sting is used for
                 instance-based ReST methods to act on the created instance on the server.
 
                 :return: unqiue string id of instance created
                 """
             clazz_._create.__qualname__ = f"{clazz_.__name__}._create"
             # noinspection PyProtectedMember
-            cls._func_wrapper(clazz, clazz_._create, is_instance_method=False, is_constructor=True, expire_on_exit=False,
-                              method=RestMethod.GET, content_type="text/plain")
+            cls._func_wrapper(clazz, clazz_._create, is_instance_method=False, is_constructor=True,
+                              expire_on_exit=False, method=RestMethod.GET, content_type="text/plain")
 
             async def _expire(self, new_lease_time: int = cls.ObjectRepo.DEFAULT_OBJECT_EXPIRATION,
                               _uuid: Optional[str] = None) -> None:
@@ -651,7 +651,7 @@ class WebApplication:
                 result = await result
                 instance = result
                 if api.is_constructor:
-            n        if api.clazz and hasattr(api.clazz, '__aenter__'):
+                    if api.clazz and hasattr(api.clazz, '__aenter__'):
                         await instance.__aenter__()
                     if hasattr(api.clazz, 'jsonrepr'):
                         repr = api.clazz.jsonrepr(result)

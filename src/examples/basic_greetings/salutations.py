@@ -29,4 +29,4 @@ class Greetings:
 
 if __name__ == '__main__':
     app = WebApplication()
-    asyncio.get_event_loop().run_until_complete(app.start()) # default to localhost HTTP on port 8080
+    asyncio.get_event_loop().run_until_complete(app.start())  # default to localhost HTTP on port 8080

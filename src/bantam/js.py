@@ -80,13 +80,13 @@ class JavascriptGenerator:
     """
 
     ENCODING = 'utf-8'
-    
+
     class Namespace:
-        
+
         def __init__(self):
             self._namespaces: Dict[str, JavascriptGenerator.Namespace] = {}
             self._classes: Dict[str, List[Tuple[RestMethod, str, API]]] = {}
-        
+
         def add_module(self, module: str) -> 'JavascriptGenerator.Namespace':
             if '.' in module:
                 my_name, child = module.split('.', maxsplit=1)
@@ -108,7 +108,7 @@ class JavascriptGenerator:
         @property
         def child_namespaces(self):
             return self._namespaces
-        
+
         @property
         def classes(self):
             return self._classes
@@ -149,17 +149,19 @@ class JavascriptGenerator:
                 if class_name in clazz_map:
                     clazz = clazz_map[class_name]
                     cls._generate_request(out, route=f"/{class_name}/_create",
-                                          api=API(clazz, clazz._create, method=RestMethod.GET, content_type="test/plain",
+                                          api=API(clazz, clazz._create, method=RestMethod.GET,
+                                                  content_type="test/plain",
                                                   is_instance_method=False, is_constructor=True, expire_on_exit=False),
                                           tab=tab)
                     cls._generate_request(out, route=f"/{class_name}/expire",
-                                          api=API(clazz, clazz._expire, method=RestMethod.GET, content_type="text/plain",
+                                          api=API(clazz, clazz._expire, method=RestMethod.GET,
+                                                  content_type="text/plain",
                                                   is_instance_method=True, is_constructor=False, expire_on_exit=False),
                                           tab=tab)
                 for method, route_, api in routes:
                     cls._generate_request(out, route_, api, tab)
                 tab = tab[:-3]
-                out.write(f"}};\n".encode(cls.ENCODING))  # for class end
+                out.write("};\n".encode(cls.ENCODING))  # for class end
 
         out.write("\nclass bantam {};\n".encode(cls.ENCODING))
         for name, namespace in namespaces.child_namespaces.items():
@@ -189,6 +191,7 @@ class JavascriptGenerator:
         response_type_name = "<<unspecified>>"
         return_cb_type_name = None
         type_name = None
+        none_type = type(None)
         for name, typ in api.arg_annotations.items():
             try:
                 if hasattr(typ, '_name') and typ._name in ['AsyncGenerator', 'AsyncIterator']:
@@ -197,7 +200,7 @@ class JavascriptGenerator:
                         type_name = None
                     else:
                         return_cb_type_name = var_type_name
-                elif str(typ).startswith('typing.Union') and typ.__args__[1] == type(None):
+                elif str(typ).startswith('typing.Union') and typ.__args__[1] == none_type:
                     type_name = name_map.get(typ.__args__[0].__name__, type_name)
                     type_name = f"{{{type_name} [optional]}}"
                 else:
@@ -225,15 +228,19 @@ class JavascriptGenerator:
                 remove_line = False
                 params_doc += f"{line}\n"
         if return_cb_type_name:
-            params_doc += f"{tab}@return {{{{function({return_cb_type_name}) => null}}}} callback to send streamed chunks to server"
+            params_doc += \
+                f"{tab}@return {{{{function({return_cb_type_name}) => null}}}} " \
+                "callback to send streamed chunks to server"
         if callback == 'onreceive':
             cb_docs = f"""
-{tab}@param {{function({response_type_name}, bool) => null}} {callback} callback invoked on each chunk received from server 
+{tab}@param {{function({response_type_name}, bool) => null}} {callback} callback invoked on each chunk
+{tab}     received from server
 {tab}@param {{function(int, str) => null}}  onerror  callback upon error, passing in response code and status text
 """
         else:
             cb_docs = f"""
-{tab}@param {{function({response_type_name}) => null}} {callback} callback inoked, passing in response from server on success
+{tab}@param {{function({response_type_name}) => null}} {callback} callback inoked,
+{tab}     passing response from server on success
 {tab}@param {{function(int, str) => null}}  onerror  callback upon error, passing in response code and status text
 """
         docs = f"""\n{tab}/*
@@ -259,7 +266,7 @@ class JavascriptGenerator:
         if api.has_streamed_response is True:
             callback = 'onreceive'
             state = 3
-            content_type = 'text/streamed; charset=x-user-defined'
+            api._content_type = 'text/streamed; charset=x-user-defined'
         else:
             callback = 'onsuccess'
             state = 'XMLHttpRequest.DONE'
@@ -319,7 +326,7 @@ class JavascriptGenerator:
 {tab}    }}
 {tab}}}"""
             query = 'params'
-            body=''
+            body = ''
         else:
             param_code = f"   {tab}\"self\": this.self_id,\n" if api.is_instance_method else ""
             param_code += ',\n'.join([f"{tab}   \"{argname}\": {argname}" for argname in argnames])
@@ -329,7 +336,8 @@ class JavascriptGenerator:
 {tab}}};"""
             query = '""'
             body = 'JSON.stringify(params)'
-        convert_codeblock = cls._generate_streamed_response(response_type, api.has_streamed_response, callback=callback, tab=tab)
+        convert_codeblock = cls._generate_streamed_response(response_type, api.has_streamed_response,
+                                                            callback=callback, tab=tab)
         out.write(f"""
 {tab}{param_code}
 {tab}let request = new XMLHttpRequest();
@@ -427,15 +435,15 @@ class JavascriptGenerator:
             convert = "JSON.parse(val)",
         else:
             convert = {str: "",
-                       int: f"parseInt(val)",
-                       float: f"parseFloat(val)",
-                       bool: f"'true'== val",
+                       int: "parseInt(val)",
+                       float: "parseFloat(val)",
+                       bool: "'true'== val",
                        dict: "JSON.parse(val)",
                        list: "JSON.parse(val)",
                        None: "null"}.get(response_type) or 'request.response.substr(request.seenBytes)'
         if streamed_response and response_type not in [bytes, str, None]:
             convert_codeblock = f"""
-{tab}    // TODO: Can we clean this up a little? 
+{tab}    // TODO: Can we clean this up a little?
 {tab}    let vals = request.response.substr(request.seenBytes).trim().split('\\n');
 {tab}    for (var i = 0; i < vals.length; ++i) {{
 {tab}       let val = vals[i];
@@ -454,8 +462,8 @@ class JavascriptGenerator:
 {tab}    request.seenBytes = request.response.length;"""
         elif streamed_response and response_type == str:
             convert_codeblock = f"""
-{tab}    // TODO: Can we clean this up a little? 
-{tab}    let chunk = request.response.substr(request.seenBytes).trim(); 
+{tab}    // TODO: Can we clean this up a little?
+{tab}    let chunk = request.response.substr(request.seenBytes).trim();
 {tab}    let vals = chunk.length == 0?[]:chunk.split('\\n');
 {tab}    if (buffered !== null){{{callback}(buffered, request.readyState == XMLHttpRequest.DONE); buffered = null; }}
 {tab}    for (var i = 0; i < vals.length-1 ; ++i) {{

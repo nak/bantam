@@ -24,7 +24,8 @@ class API:
             raise TypeError(f"No annotation for return type in {func}")
         self._arg_annotations = {name: typ for name, typ in annotations.items() if name != 'return'}
         self._async_arg_annotations = {
-            name: typ for name, typ in self._arg_annotations.items() if typ in (bytes, AsyncChunkIterator, AsyncLineIterator)
+            name: typ for name, typ in self._arg_annotations.items()
+            if typ in (bytes, AsyncChunkIterator, AsyncLineIterator)
         }
         if len(self._async_arg_annotations) > 1:
             raise TypeError("At most one parameter can be and async iterator in a web_api request")
@@ -170,7 +171,8 @@ class APIDoc:
             else:
                 main_doc += indent + line + '\n'
         for name in [arg for arg in api.arg_annotations if arg not in type_names]:
-            main_doc += f"\n{indent}*undocumented param*: {name} of type {cls._get_type_name(api.arg_annotations[name])}"
+            main_doc += f"\n{indent}*undocumented param*: {name} of type" \
+                        f" {cls._get_type_name(api.arg_annotations[name])}"
             type_names[name] = api.arg_annotations[name]
         main_doc += "\n"
         if flavor == cls.Flavor.JAVASCRIPT:

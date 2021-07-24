@@ -6,6 +6,7 @@ import os
 from bantam.api import RestMethod
 from bantam.web import WebApplication, web_api
 
+
 class PoetryReader:
     POEM = """
     Mary had a little lamb...

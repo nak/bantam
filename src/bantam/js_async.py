@@ -56,10 +56,9 @@ async generators/iterator usage.
 
 
 """
-import re
 from aiohttp.web_response import Response, StreamResponse
 from typing import Callable, Awaitable, Union
-from typing import Dict, Tuple, List, IO, Type
+from typing import Dict, Tuple, List, IO
 from urllib.request import Request
 
 from bantam.api import API, APIDoc, RestMethod
@@ -85,7 +84,6 @@ class bantam_UUID{
 
 class bantam {
 
-    
     static compute_query(param_map){
         let c = '?';
         let params = '';
@@ -104,9 +102,9 @@ class bantam {
         }
         return params;
     }
-    
+
     static async fetch_GET(route, content_type, param_map, convert){
-        let result = await fetch(route + bantam.compute_query(param_map), 
+        let result = await fetch(route + bantam.compute_query(param_map),
                     {method:'GET', headers: {'Content-Type': content_type}});
         if (result.status < 200 || result.status > 299){
             let statusBody = await result.body.getReader().read();
@@ -116,9 +114,10 @@ class bantam {
         }
         return convert(await result.text());
     }
-    
+
     static async *fetch_GET_streamed(route, content_type, param_map, convert, return_is_bytes){
-        let result = await fetch(route + bantam.compute_query(param_map), {method:'GET', headers: {'Content-Type': content_type}});
+        let result = await fetch(route + bantam.compute_query(param_map),
+                                 {method:'GET', headers: {'Content-Type': content_type}});
         let reader = await result.body.getReader();
         while (true){
             if (result.status < 200 || result.status > 299){
@@ -127,7 +126,7 @@ class bantam {
                 let stats = {status: result.status, statusText: statusBody};
                 throw stats;
             }
-            let resp = await reader.read();            
+            let resp = await reader.read();
             if (resp.done){
                 break;
             }
@@ -157,13 +156,13 @@ class bantam {
                     }
                     controller.close();
                 }
-            });  
+            });
         } else {
             params = '';
             requestBody = JSON.stringify(param_map);
         }
         try{
-            let result = await fetch(route + params, 
+            let result = await fetch(route + params,
                                {method:'POST', headers: {'Content-Type': content_type},
                                 body: requestBody});
 
@@ -195,8 +194,9 @@ class bantam {
                 }
             });
             try{
-                body = await fetch(route + bantam.compute_query(param_map), {method:'POST', headers: {'Content-Type': content_type},
-                                           body: requestBody});
+                body = await fetch(route + bantam.compute_query(param_map), {method:'POST',
+                                   headers: {'Content-Type': content_type},
+                                   body: requestBody});
             } catch (error) {
                 if (error.message === 'Failed to fetch'){
                     throw new Error("Streamed requests not supported by this browser");
@@ -215,7 +215,7 @@ class bantam {
                 let stats = {status: body.status, statusText: statusBody};
                 throw stats;
             }
-            let resp = await reader.read();            
+            let resp = await reader.read();
             if (resp.done){
                 break;
             }
@@ -231,7 +231,7 @@ class bantam {
            }
         }
     }
-    
+
     static convert_int(text){
         let converted = parseInt(text);
         if (typeof converted === 'numbered' && isNaN(buffered)){
@@ -240,46 +240,46 @@ class bantam {
          }
          return converted;
     }
-    
+
     static convert_str(text){
         return text;
     }
-    
+
     static convert_bytes(text){
         let encoder = new TextEncoder();
         return encoder.encode(text);
     }
-    
+
     convert_float(text){
         let converted = parseFloat(text);
         if (typeof converted === 'numbered' && isNaN(buffered)){
              let stats = {status:-1, statusText:"Unable to convert server response '" + val + "' to float"};
              throw stats;
          }
-         return converted;    
+         return converted;
     }
-    
+
     static convert_bool(text){
         return text === 'true';
     }
-    
+
     static convert_None(text){
         return null;
     }
-    
+
     static convert_complex(text){
         return JSON.parse(text);
     }
-    
+
 };
 """
-    
+
     class Namespace:
-        
+
         def __init__(self):
             self._namespaces: Dict[str, JavascriptGeneratorAsync.Namespace] = {}
             self._classes: Dict[str, List[Tuple[RestMethod, str, API]]] = {}
-        
+
         def add_module(self, module: str) -> 'JavascriptGeneratorAsync.Namespace':
             if '.' in module:
                 my_name, child = module.split('.', maxsplit=1)
@@ -290,7 +290,7 @@ class bantam {
                 m = self._namespaces.setdefault(my_name, JavascriptGeneratorAsync.Namespace())
             return m
 
-        def add_class_and_route_get(self,class_name: str, route: str, api: API) -> None:
+        def add_class_and_route_get(self, class_name: str, route: str, api: API) -> None:
             m = self.add_module(api.module)
             m._classes.setdefault(class_name, []).append((RestMethod.GET, route, api))
 
@@ -301,7 +301,7 @@ class bantam {
         @property
         def child_namespaces(self):
             return self._namespaces
-        
+
         @property
         def classes(self):
             return self._classes
@@ -336,24 +336,32 @@ class bantam {
                 out.write(f"\n{parent_name}.{class_name} = class {{\n".encode(cls.ENCODING))
                 clazz_map = {c.__name__: c for c in WebApplication._class_instance_methods
                              if WebApplication._class_instance_methods[c]}
-                for api in [api for api in WebApplication._all_methods if api.qualname.startswith(class_name) and api.clazz is not None]:
+                for api in [api for api in WebApplication._all_methods if (api.qualname.startswith(class_name)
+                                                                           and api.clazz is not None)]:
                     if api.is_constructor:
                         clazz_map[api.clazz.__name__] = api.clazz
                 if class_name in clazz_map:
                     clazz = clazz_map[class_name]
                     cls._generate_request(out, route=f"/{class_name}/_create",
-                                          api=API(clazz, clazz._create, method=RestMethod.GET, content_type="text/plain",
-                                                  is_instance_method=False, is_constructor=True, expire_on_exit=False),
+                                          api=API(clazz, clazz._create, method=RestMethod.GET,
+                                                  content_type="text/plain",
+                                                  is_instance_method=False,
+                                                  is_constructor=True,
+                                                  expire_on_exit=False),
                                           tab=tab)
-                    cls._generate_request(out, route=f"/{class_name}/expire",
-                                          api=API(clazz, clazz._expire, method=RestMethod.GET, content_type="text/plain",
-                                                  is_instance_method=True, is_constructor=False, expire_on_exit=False),
+                    cls._generate_request(out,
+                                          route=f"/{class_name}/expire",
+                                          api=API(clazz, clazz._expire, method=RestMethod.GET,
+                                                  content_type="text/plain",
+                                                  is_instance_method=True,
+                                                  is_constructor=False,
+                                                  expire_on_exit=False),
                                           tab=tab)
                 tab += "   "
                 for method, route_, api in routes:
                     cls._generate_request(out, route_, api, tab)
                 tab = tab[:-3]
-                out.write(f"}};\n".encode(cls.ENCODING))  # for class end
+                out.write("};\n".encode(cls.ENCODING))  # for class end
 
         ni = '\n'
         out.write(f"{ni}{cls.BANTAM_CORE};{ni}".encode(cls.ENCODING))
@@ -393,7 +401,8 @@ class bantam {
         else:
             name = api.name if not api.name.startswith('_') else api.name[1:]
             static_text = "" if api.is_instance_method else "static "
-            out.write(f"{tab}{static_text}async{'*' if api.has_streamed_response else ''} {name}({', '.join(argnames)}) {{\n".
+            out.write(f"{tab}{static_text}async{'*' if api.has_streamed_response else ''} {name}("
+                      f"{', '.join(argnames)}) {{\n".
                       encode(cls.ENCODING))
         if api.async_arg_annotations:
             streamed_param = list(api.async_arg_annotations.keys())[0]
@@ -427,8 +436,8 @@ class bantam {
         if api.has_streamed_response:
             out.write(f"""
 {tab}for await (var chunk of bantam.fetch_{api.method.value}_streamed("{route}",
-{tab}                    "{api.content_type}", 
-{tab}                    params, 
+{tab}                    "{api.content_type}",
+{tab}                    params,
 {tab}                    bantam.{convert},
 {tab}                    {str(api.return_type == bytes).lower()}
 {tab}                    {f", {streamed_param}" if streamed_param else ""})){{

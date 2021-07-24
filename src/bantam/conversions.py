@@ -17,7 +17,7 @@ def to_str(val: Any) -> str:
         return val
     elif type(val) in (int, float, bool):
         return str(val).lower()
-    elif type(val) in [dict, list]or (getattr(type(val), '_name', None) in ('Dict', 'List', 'Mapping')):
+    elif type(val) in [dict, list] or (getattr(type(val), '_name', None) in ('Dict', 'List', 'Mapping')):
         return json.dumps(val)
     raise TypeError(f"Type of value, '{type(val)}' is not supported in web api")
 
