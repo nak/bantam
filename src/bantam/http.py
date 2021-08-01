@@ -304,10 +304,11 @@ class WebApplication:
         """
         if route in WebApplication.routes_get or route in cls.routes_post:
             existing = WebApplication.callables_get.get(route) or WebApplication.callables_post.get(route)
-            raise WebApplication.DuplicateRoute(
-                f"Route '{route}' associated with {api.module}.{api.name}"
-                f" already exists here: {existing.module}.{existing.name} "
-            )
+            if api.module != existing.module or api.name != existing.name:
+                raise WebApplication.DuplicateRoute(
+                    f"Route '{route}' associated with {api.module}.{api.name}"
+                    f" already exists here: {existing.module}.{existing.name} "
+                )
         cls.routes_get[route] = async_handler
         cls.callables_get[route] = api
 
