@@ -302,10 +302,10 @@ class WebApplication:
         :param async_handler: the raw handler for handling an incoming Request and returning a Response
         :param api: the high-level deocrated web_api that will be invoked by the handler
         """
-        if route in WebApplication.routes_get or route in cls.routes_post:
-            existing = WebApplication.callables_get.get(route) or WebApplication.callables_post.get(route)
+        if route in cls.routes_get or route in cls.routes_post:
+            existing = cls.callables_get.get(route) or cls.callables_post.get(route)
             if api.module != existing.module or api.name != existing.name:
-                raise WebApplication.DuplicateRoute(
+                raise cls.DuplicateRoute(
                     f"Route '{route}' associated with {api.module}.{api.name}"
                     f" already exists here: {existing.module}.{existing.name} "
                 )
@@ -723,7 +723,7 @@ class WebApplication:
         try:
             kwargs: Dict[str, Any] = {}
             if api.has_streamed_request:
-                key, typ = api.async_arg_annotations.items()[0]
+                key, typ = list(api.async_arg_annotations.items())[0]
                 if typ == bytes:
                     kwargs = {key: await request.read()}
                 elif typ == AsyncLineIterator:

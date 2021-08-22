@@ -1,5 +1,2 @@
 aiohttp==3.*
-pytest~=6.2.1
-pytest-asyncio
 docutils~=0.16
-setuptools~=40.8.0
