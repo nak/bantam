@@ -4,19 +4,19 @@ package for conversions to/from text or json
 import dataclasses
 import json
 from typing import Type, Any
-
+from enum import Enum
 
 def to_str(val: Any) -> str:
     if hasattr(val, '__dataclass_fields__'):
         mapping = dataclasses.asdict(val)
         for key in mapping.keys():
-            if hasattr(mapping[key], '__dataclass_fields__'):
+            if mapping[key] is not None:
                 mapping[key] = to_str(mapping[key])
         return json.dumps(mapping)
-    elif type(val) == str:
+    elif isinstance(val, Enum):
+        return to_str(val.value)
+    elif type(val) == (str, int, float, bool):
         return val
-    elif type(val) in (int, float, bool):
-        return str(val).lower()
     elif type(val) in [dict, list] or (getattr(type(val), '_name', None) in ('Dict', 'List', 'Mapping')):
         return json.dumps(val)
     raise TypeError(f"Type of value, '{type(val)}' is not supported in web api")
