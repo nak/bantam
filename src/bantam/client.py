@@ -46,6 +46,13 @@ class WebInterface:
                 self._self_id = self_id
 
             @classmethod
+            def _generate_url_args(cls, kwargs, self_id: Optional[str] = None):
+                if self_id is None and not kwargs:
+                    return ''
+                return (f'?self={self_id}&' if self_id is not None else '?') + \
+                    '&'.join([f"{k}={conversions.to_str(v)}" for k, v in kwargs.items() if v is not None])
+
+            @classmethod
             def _construct(cls):
                 def add_instance_method(name: str, method):
                     # instance method
@@ -70,8 +77,7 @@ class WebInterface:
                         while cls.end_point.endswith('/'):
                             cls.end_point = cls.end_point[:-1]
                         if rest_method.value == RestMethod.GET.value:
-                            url_args = f'?self={self._self_id}&' +\
-                                '&'.join([f"{k}={conversions.to_str(v)}" for k, v in kwargs.items()])
+                            url_args = cls._generate_url_args(self_id=self._self_id, kwargs=kwargs)
                             url = f"{cls.end_point}/{cls._impl_name}/{api.name}{url_args}"
                             async with aiohttp.ClientSession() as session:
                                 async with session.get(url) as resp:
@@ -90,15 +96,13 @@ class WebInterface:
                         method = api.method
                         rest_method = method._bantam_web_method
                         arg_spec = inspect.getfullargspec(api._func)
-                        kwargs = {arg_spec.args[n]: args[n] for n in range(len(args))
-                                  if args[n] is not None}
+                        kwargs = {arg_spec.args[n]: args[n] for n in range(len(args)) if args[n] is not None}
                         kwargs.update(kwargs_)
 
                         while cls.end_point.endswith('/'):
                             cls.end_point = cls.end_point[:-1]
                         if rest_method == RestMethod.GET:
-                            url_args = f'?self={self._self_id}&' +\
-                                '&'.join([f"{k}={conversions.to_str(v)}" for k, v in kwargs.items()])
+                            url_args = cls._generate_url_args(self_id=self._self_id, kwargs=kwargs)
                             url = f"{cls.end_point}/{cls._impl_name}/{api.name}{url_args}"
                             async with aiohttp.ClientSession() as session:
                                 async with session.get(url) as resp:
@@ -145,8 +149,7 @@ class WebInterface:
                         while cls.end_point.endswith('/'):
                             cls.end_point = cls.end_point[:-1]
                         if rest_method.value == RestMethod.GET.value:
-                            url_args = '?' + '&'.join([f"{k}={conversions.to_str(v)}" for k, v in kwargs.items()])\
-                                if kwargs else ''
+                            url_args = cls._generate_url_args(kwargs=kwargs)
                             url = f"{base_url}{url_args}"
                             async with aiohttp.ClientSession() as session:
                                 async with session.get(url) as resp:
@@ -181,7 +184,7 @@ class WebInterface:
                         while cls.end_point.endswith('/'):
                             cls.end_point = cls.end_point[:-1]
                         if rest_method.value == RestMethod.GET.value:
-                            url_args = '?' + '&'.join([f"{k}={conversions.to_str(v)}" for k, v in kwargs.items()])
+                            url_args = cls._generate_url_args(kwargs=kwargs)
                             url = f"{base_url}{url_args}"
                             async with aiohttp.ClientSession() as session:
                                 async with session.get(url) as resp:

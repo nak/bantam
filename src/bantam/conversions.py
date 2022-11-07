@@ -3,11 +3,13 @@ package for conversions to/from text or json
 """
 import dataclasses
 import json
-from typing import Type, Any
+from typing import Type, Any, Optional
 from enum import Enum
 
 
-def to_str(val: Any) -> str:
+def to_str(val: Any) -> Optional[str]:
+    if val is None:
+        return None
     if hasattr(val, '__dataclass_fields__'):
         mapping = dataclasses.asdict(val)
         for key in mapping.keys():
