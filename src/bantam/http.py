@@ -661,7 +661,7 @@ class WebApplication:
                         content_type = 'application/json'
                         result = json.dumps(repr)
                     else:
-                        uuid = kwargs.get(api.uuid_param) or hex(id(result))
+                        uuid = kwargs[api.uuid_param]
                         result = uuid
                     cls.ObjectRepo.instances[uuid] = instance
                     cls.ObjectRepo.by_instance[instance] = uuid
