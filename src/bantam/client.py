@@ -1,12 +1,11 @@
 import json
-from abc import ABC
 import inspect
 from typing import TypeVar, Type, Optional
 
 import aiohttp
 
-from src.bantam import conversions
-from src.bantam.api import RestMethod, API
+from bantam import conversions
+from bantam.api import RestMethod, API
 
 
 T = TypeVar('T', bound="WebClient")
