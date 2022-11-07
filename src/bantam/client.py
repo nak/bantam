@@ -19,12 +19,16 @@ class WebInterface:
 
         # noinspection PyProtectedMember
         class ClientFactory:
+            _cache = {}
 
             def __getitem__(self: T, end_point: str) -> Type["ClientImpl"]:
+                if end_point in ClientFactory._cache:
+                    return ClientFactory._cache[end_point]
                 while end_point.endswith('/'):
                     end_point = end_point[:-1]
                 ClientImpl.end_point = end_point
                 ClientImpl._construct()
+                ClientFactory._cache[end_point] = ClientImpl
                 return ClientImpl
 
         # noinspection PyProtectedMember
@@ -199,7 +203,7 @@ class WebInterface:
                     else:
                         setattr(ClientImpl, api.name, static_method)
 
-                for name, method in inspect.getmembers(cls, predicate=inspect.isfunction):
+                for name, method in inspect.getmembers(cls._clazz, predicate=inspect.isfunction):
                     if name in ('__init__', '_construct', 'Client', 'jsonrepr'):
                         continue
                     if not method._bantam_web_api.is_instance_method:
