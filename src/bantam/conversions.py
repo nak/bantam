@@ -23,11 +23,19 @@ def to_str(val: Any) -> str:
     raise TypeError(f"Type of value, '{type(val)}' is not supported in web api")
 
 
+def _issubclass_safe(typ, clazz):
+    # noinspection PyBroadException
+    try:
+        return issubclass(typ, clazz)
+    except Exception:
+        return False
+
+
 def from_str(image: str, typ: Type) -> Any:
     if hasattr(typ, '_name') and (str(typ).startswith('typing.Union') or str(typ).startswith('typing.Optional')):
         typ = typ.__args__[0]
     #######
-    if issubclass(typ, Enum):
+    if _issubclass_safe(typ, Enum):
         return typ(image)
     elif typ == str:
         return image
@@ -41,7 +49,7 @@ def from_str(image: str, typ: Type) -> Any:
         mapping = json.loads(image)
         for name, field in typ.__dataclass_fields__.items():
             if name not in mapping:
-                raise ValueError(f"Provided value does not mapping to datacalsss {typ}: missing field {name}")
+                raise ValueError(f"Provided value does not mapping to dataclasss {typ}: missing field {name}")
             if hasattr(field.type, '__dataclass_fields__'):
                 mapping[name] = from_str(json.dumps(mapping[name]), field.type)
             else:
