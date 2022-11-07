@@ -59,7 +59,8 @@ class WebInterface:
                         nonlocal api
                         rest_method = api.method
                         arg_spec = inspect.getfullargspec(api._func)
-                        kwargs = {arg_spec.args[n + 1]: args[n] for n in range(len(args))} # skip self as first argspec
+                        kwargs = {arg_spec.args[n + 1]: args[n] for n in range(len(args))
+                                  if args[n] is not None}  # skip self as first argspec
                         kwargs.update(kwargs_)
 
                         while cls.end_point.endswith('/'):
@@ -85,7 +86,8 @@ class WebInterface:
                         method = api.method
                         rest_method = method._bantam_web_method
                         arg_spec = inspect.getfullargspec(api._func)
-                        kwargs = {arg_spec.args[n]: args[n] for n in range(len(args))}
+                        kwargs = {arg_spec.args[n]: args[n] for n in range(len(args))
+                                  if args[n] is not None}
                         kwargs.update(kwargs_)
 
                         while cls.end_point.endswith('/'):
@@ -132,7 +134,8 @@ class WebInterface:
                     async def static_method(*args, **kwargs_):
                         nonlocal api
                         arg_spec = inspect.getfullargspec(api._func)
-                        kwargs = {arg_spec.args[n]: args[n] for n in range(len(args))}
+                        kwargs = {arg_spec.args[n]: args[n] for n in range(len(args))
+                                  if args[n] is not None}
                         kwargs.update(kwargs_)
                         rest_method = api._func._bantam_web_method
                         while cls.end_point.endswith('/'):
@@ -168,7 +171,8 @@ class WebInterface:
                         nonlocal api
                         rest_method = api._func._bantam_web_method
                         arg_spec = inspect.getfullargspec(api._func)
-                        kwargs = {arg_spec.args[n]: args[n] for n in range(len(args))}
+                        kwargs = {arg_spec.args[n]: args[n] for n in range(len(args))
+                                  if args[n] is not None}
                         kwargs.update(kwargs_)
                         while cls.end_point.endswith('/'):
                             cls.end_point = cls.end_point[:-1]

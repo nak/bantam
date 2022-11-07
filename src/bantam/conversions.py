@@ -6,6 +6,7 @@ import json
 from typing import Type, Any
 from enum import Enum
 
+
 def to_str(val: Any) -> str:
     if hasattr(val, '__dataclass_fields__'):
         mapping = dataclasses.asdict(val)
@@ -14,7 +15,7 @@ def to_str(val: Any) -> str:
                 mapping[key] = to_str(mapping[key])
         return json.dumps(mapping)
     elif isinstance(val, Enum):
-        return to_str(val.value)
+        return val.value
     elif type(val) in (str, int, float, bool):
         return val
     elif type(val) in [dict, list] or (getattr(type(val), '_name', None) in ('Dict', 'List', 'Mapping')):
@@ -25,7 +26,10 @@ def to_str(val: Any) -> str:
 def from_str(image: str, typ: Type) -> Any:
     if hasattr(typ, '_name') and (str(typ).startswith('typing.Union') or str(typ).startswith('typing.Optional')):
         typ = typ.__args__[0]
-    if typ == str:
+    #######
+    if issubclass(typ, Enum):
+        return typ(image)
+    elif typ == str:
         return image
     elif typ in (int, float):
         return typ(image)
@@ -40,6 +44,12 @@ def from_str(image: str, typ: Type) -> Any:
                 raise ValueError(f"Provided value does not mapping to datacalsss {typ}: missing field {name}")
             if hasattr(field.type, '__dataclass_fields__'):
                 mapping[name] = from_str(json.dumps(mapping[name]), field.type)
+            else:
+                mapping[name] = from_str(mapping[name], field.type)
         return typ(**mapping)
+    elif typ is None:
+        if image:
+            raise ValueError(f"Got a return of {image} for a return type of None")
+        return None
     else:
         raise TypeError(f"Unsupported typ for web api: '{typ}'")
