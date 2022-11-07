@@ -48,7 +48,7 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
     """
     from .http import WebApplication
     if not isinstance(content_type, str):
-        raise Exception("@web_api must be provided one str argument which is the content type")
+        raise Exception("@web_api must provide one str argument which is the content type")
 
     def wrapper(obj: Union[WebApi, staticmethod]):
         is_static = isinstance(obj, staticmethod)
@@ -64,7 +64,7 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
             raise TypeError("names of web_api methods must not start with underscore")
         # noinspection PyProtectedMember
         # clazz = WebApplication._instance_methods_class_map[obj] if not isinstance(obj, staticmethod) else None
-
+        obj._bantam_web_method = method
         return WebApplication._func_wrapper(None,
                                             obj,
                                             is_instance_method=not is_static,

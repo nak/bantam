@@ -525,6 +525,7 @@ class WebApplication:
         """
         api = API(clazz, func, method=method, content_type=content_type, is_instance_method=is_instance_method,
                   is_constructor=is_constructor, expire_on_exit=expire_on_exit, uuid_param=uuid_param)
+        func._bantam_web_api = api
         if is_instance_method:
             if not inspect.iscoroutinefunction(func) and not inspect.isasyncgenfunction(func):
                 raise ValueError("the @web_api decorator can only be applied to classes with public "
