@@ -15,7 +15,7 @@ def to_str(val: Any) -> str:
         return json.dumps(mapping)
     elif isinstance(val, Enum):
         return to_str(val.value)
-    elif type(val) == (str, int, float, bool):
+    elif type(val) in (str, int, float, bool):
         return val
     elif type(val) in [dict, list] or (getattr(type(val), '_name', None) in ('Dict', 'List', 'Mapping')):
         return json.dumps(val)
