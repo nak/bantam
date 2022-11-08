@@ -3,6 +3,7 @@ from typing import Any, Callable, Awaitable, Union, Optional, Dict
 
 from aiohttp.web import Request, Response
 from aiohttp.web_response import StreamResponse
+from aiohttp import ClientTimeout
 
 from bantam.api import RestMethod
 
@@ -18,6 +19,7 @@ PostProcessor = Callable[[Union[Response, StreamResponse]], Union[Response, Stre
 def web_api(content_type: str, method: RestMethod = RestMethod.GET,
             is_constructor: bool = False,
             expire_obj: bool = False,
+            timeout: Optional[ClientTimeout] = None,
             uuid_param: Optional[str] = None,
             preprocess: Optional[PreProcessor] = None,
             postprocess: Optional[PostProcessor] = None) -> Callable[[WebApi], WebApi]:
@@ -67,6 +69,7 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
         obj._bantam_web_method = method
         return WebApplication._func_wrapper(None,
                                             obj,
+                                            timeout=timeout,
                                             is_instance_method=not is_static,
                                             method=method,
                                             content_type=content_type,

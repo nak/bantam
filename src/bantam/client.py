@@ -54,17 +54,17 @@ class WebInterface:
 
             @classmethod
             def _construct(cls):
-                def add_instance_method(name: str, method):
+                def add_instance_method(name_: str, method_):
                     # instance method
-                    if name in ('Client', '_construct'):
+                    if name_ in ('Client', '_construct'):
                         return
-                    if not hasattr(method, '_bantam_web_method'):
+                    if not hasattr(method_, '_bantam_web_method'):
                         raise SyntaxError(f"All methods of class WebClient most be decorated with '@web_api'")
                     # noinspection PyProtectedMember
-                    if method._bantam_web_api.has_streamed_request:
+                    if method_._bantam_web_api.has_streamed_request:
                         raise SyntaxError(f"Streamed request for WebClient's are not supported at this time")
                     # noinspection PyProtectedMember
-                    api: API = method._bantam_web_api
+                    api: API = method_._bantam_web_api
 
                     async def instance_method(self, *args, **kwargs_):
                         nonlocal api
@@ -79,22 +79,22 @@ class WebInterface:
                         if rest_method.value == RestMethod.GET.value:
                             url_args = cls._generate_url_args(self_id=self._self_id, kwargs=kwargs)
                             url = f"{cls.end_point}/{cls._impl_name}/{api.name}{url_args}"
-                            async with aiohttp.ClientSession() as session:
+                            async with aiohttp.ClientSession(timeout=api.timeout) as session:
                                 async with session.get(url) as resp:
                                     data = (await resp.content.read()).decode('utf-8')
                                     return conversions.from_str(data, api.return_type)
                         else:
                             url = f"{cls.end_point}/{cls._impl_name}/{api.name}?self={self._self_id}"
                             payload = json.dumps({k: conversions.to_str(v) for k, v in kwargs.items()})
-                            async with aiohttp.ClientSession() as session:
+                            async with aiohttp.ClientSession(timeout=api.timeout) as session:
                                 async with session.post(url, data=payload) as resp:
                                     data = (await resp.content.read()).decode('utf-8')
                                     return conversions.from_str(data, api.return_type)
 
                     async def instance_method_streamed(self, *args, **kwargs_):
                         nonlocal api
-                        method = api.method
-                        rest_method = method._bantam_web_method
+                        method_api = api.method
+                        rest_method = method_api._bantam_web_method
                         arg_spec = inspect.getfullargspec(api._func)
                         kwargs = {arg_spec.args[n]: args[n] for n in range(len(args)) if args[n] is not None}
                         kwargs.update(kwargs_)
@@ -104,7 +104,7 @@ class WebInterface:
                         if rest_method == RestMethod.GET:
                             url_args = cls._generate_url_args(self_id=self._self_id, kwargs=kwargs)
                             url = f"{cls.end_point}/{cls._impl_name}/{api.name}{url_args}"
-                            async with aiohttp.ClientSession() as session:
+                            async with aiohttp.ClientSession(timeout=api.timeout) as session:
                                 async with session.get(url) as resp:
                                     async for data, _ in resp.content.iter_chunks():
                                         if data:
@@ -113,7 +113,7 @@ class WebInterface:
                         else:
                             url = f"{cls.end_point}/{cls._impl_name}/{api.name}?self={self._self_id}"
                             payload = json.dumps({k: conversions.to_str(v) for k, v in kwargs.items()})
-                            async with aiohttp.ClientSession() as session:
+                            async with aiohttp.ClientSession(timeout=api.timeout) as session:
                                 async with session.post(url, data=payload) as resp:
                                     async for data, _ in resp.content.iter_chunks():
                                         if data:
@@ -121,21 +121,21 @@ class WebInterface:
                                             yield conversions.from_str(data, api.return_type)
 
                     if api.has_streamed_response:
-                        setattr(cls, name, instance_method_streamed)
+                        setattr(cls, name_, instance_method_streamed)
                     else:
-                        setattr(cls, name, instance_method)
+                        setattr(cls, name_, instance_method)
 
-                def add_static_method(name: str, method):
+                def add_static_method(name_: str, method_):
                     # class/static methods
 
-                    if not hasattr(method, '_bantam_web_method'):
+                    if not hasattr(method_, '_bantam_web_method'):
                         raise SyntaxError(f"All methods of class WebClient most be decorated with '@web_api'")
                     # noinspection PyProtectedMember
-                    if method._bantam_web_api.has_streamed_request:
+                    if method_._bantam_web_api.has_streamed_request:
                         raise SyntaxError(f"Streamed request for WebClient's are not supported at this time")
                     # noinspection PyProtectedMember
-                    api: API = method._bantam_web_api
-                    base_url = f"{cls.end_point}/{cls._impl_name}/{name}"
+                    api: API = method_._bantam_web_api
+                    base_url = f"{cls.end_point}/{cls._impl_name}/{name_}"
 
                     # noinspection PyDecorator
                     @staticmethod
@@ -151,20 +151,20 @@ class WebInterface:
                         if rest_method.value == RestMethod.GET.value:
                             url_args = cls._generate_url_args(kwargs=kwargs)
                             url = f"{base_url}{url_args}"
-                            async with aiohttp.ClientSession() as session:
+                            async with aiohttp.ClientSession(timeout=api.timeout) as session:
                                 async with session.get(url) as resp:
                                     data = (await resp.content.read()).decode('utf-8')
                                     if api.is_constructor:
                                         if hasattr(cls, 'jsonrepr'):
-                                            repr = cls.jsonrepr(data)
-                                            self_id = repr[api.uuid_param or 'self_id']
+                                            repr_ = cls.jsonrepr(data)
+                                            self_id = repr_[api.uuid_param or 'self_id']
                                         else:
                                             self_id = kwargs[api.uuid_param or 'self_id']
                                         return ClientImpl(self_id)
                                     return conversions.from_str(data, api.return_type)
                         else:
                             payload = json.dumps({k: conversions.to_str(v) for k, v in kwargs.items()})
-                            async with aiohttp.ClientSession() as session:
+                            async with aiohttp.ClientSession(timeout=api.timeout) as session:
                                 async with session.post(base_url, data=payload) as resp:
                                     data = (await resp.content.read()).decode('utf-8')
                                     if api.is_constructor:
@@ -186,7 +186,7 @@ class WebInterface:
                         if rest_method.value == RestMethod.GET.value:
                             url_args = cls._generate_url_args(kwargs=kwargs)
                             url = f"{base_url}{url_args}"
-                            async with aiohttp.ClientSession() as session:
+                            async with aiohttp.ClientSession(timeout=api.timeout) as session:
                                 async with session.get(url) as resp:
                                     async for data, _ in resp.content.iter_chunks():
                                         if data:
@@ -194,7 +194,7 @@ class WebInterface:
                                             yield conversions.from_str(data, api.return_type)
                         else:
                             payload = json.dumps({k: conversions.to_str(v) for k, v in kwargs.items()})
-                            async with aiohttp.ClientSession() as session:
+                            async with aiohttp.ClientSession(timeout=api.timeout) as session:
                                 async with session.post(base_url, data=payload) as resp:
                                     async for data, _ in resp.content.iter_chunks():
                                         if data:

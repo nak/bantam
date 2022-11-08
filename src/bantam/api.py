@@ -1,6 +1,8 @@
 from enum import Enum
 from typing import Callable, Awaitable, AsyncGenerator, Dict, List, Optional
 
+from aiohttp import ClientTimeout
+
 AsyncChunkIterator = Callable[[int], Awaitable[AsyncGenerator[None, bytes]]]
 AsyncLineIterator = AsyncGenerator[None, str]
 
@@ -13,13 +15,16 @@ class RestMethod(Enum):
 class API:
 
     def __init__(self, clazz, func, method: RestMethod, content_type: str, is_instance_method: bool,
-                 is_constructor: bool, expire_on_exit: bool = False, uuid_param: Optional[str] = None):
+                 is_constructor: bool,
+                 timeout: Optional[ClientTimeout] = None,
+                 expire_on_exit: bool = False, uuid_param: Optional[str] = None):
         annotations = func.__annotations__
         self._clazz = clazz
         self._is_instance_method = is_instance_method
         self._expire_obj = expire_on_exit
         self._func = func
         self._method = method
+        self._timeout = timeout or ClientTimeout()
         if 'return' not in annotations:
             raise TypeError(f"No annotation for return type in {func}")
         self._arg_annotations = {name: typ for name, typ in annotations.items() if name != 'return'}
@@ -46,6 +51,10 @@ class API:
     @property
     def clazz(self):
         return self._clazz
+
+    @property
+    def timeout(self) -> ClientTimeout:
+        return self._timeout
 
     @property
     def name(self) -> str:

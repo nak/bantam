@@ -92,6 +92,7 @@ import sys
 import traceback
 import types
 
+from aiohttp import ClientTimeout
 from aiohttp import web
 from aiohttp.web import (
     Application,
@@ -513,6 +514,7 @@ class WebApplication:
                       expire_on_exit: bool,
                       method: RestMethod,
                       content_type: str,
+                      timeout: Optional[ClientTimeout] = None,
                       uuid_param: Optional[str] = None,
                       preprocess: Optional[PreProcessor] = None,
                       postprocess: Optional[PostProcessor] = None) -> WebApi:
@@ -524,7 +526,7 @@ class WebApplication:
         :return: function back, having processed as a web api and registered the route
         """
         api = API(clazz, func, method=method, content_type=content_type, is_instance_method=is_instance_method,
-                  is_constructor=is_constructor, expire_on_exit=expire_on_exit, uuid_param=uuid_param)
+                  is_constructor=is_constructor, expire_on_exit=expire_on_exit, uuid_param=uuid_param, timeout=timeout)
         func._bantam_web_api = api
         if is_instance_method:
             if not inspect.iscoroutinefunction(func) and not inspect.isasyncgenfunction(func):
