@@ -206,7 +206,6 @@ class WebInterface:
                             if name in ('__init__', '_construct', 'Client', 'jsonrepr'):
                                 continue
                             if not method._bantam_web_api.is_instance_method:
-                                delattr(cls._clazz, name)
                                 add_static_method(name, method)
                             else:
                                 add_instance_method(name, method)

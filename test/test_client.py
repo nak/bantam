@@ -76,14 +76,15 @@ class TestWebClient:
                 return b'PONG'
 
     _get_count = 0
+    _suffix = ""
 
     @staticmethod
     def mock_get(url: str, **kwargs):
         urls = [
-            "http://someendpoint/MockWebClient/constructor?data=data",
-            "http://someendpoint/MockWebClient/static_method",
-            "http://someendpoint/MockWebClient/static_method_streamed?val1=1&val2=2.34",
-            ("http://someendpoint/MockWebClient/instance_method?self","val=PING"),
+            f"http://someendpoint{TestWebClient._suffix}/MockWebClient/constructor?data=data",
+            f"http://someendpoint{TestWebClient._suffix}/MockWebClient/static_method",
+            f"http://someendpoint{TestWebClient._suffix}/MockWebClient/static_method_streamed?val1=1&val2=2.34",
+            (f"http://someendpoint{TestWebClient._suffix}/MockWebClient/instance_method?self","val=PING"),
         ]
         if TestWebClient._get_count < 3:
             assert url == urls[TestWebClient._get_count]
@@ -105,6 +106,16 @@ class TestWebClient:
         assert await MyClient.static_method() == {'a': "1"}
         data_values = []
         async for data in MyClient.static_method_streamed(val1=1, val2=2.34):
+            data_values.append(data)
+        assert data_values == ['I', 'am', 'the', 'very', 'model']
+        assert await instance.instance_method("PING") == 'PONG'
+
+        TestWebClient._get_count = 0
+        TestWebClient._suffix = "2"
+        instance = await MyClient2.constructor('data')
+        assert await MyClient2.static_method() == {'a': "1"}
+        data_values = []
+        async for data in MyClient2.static_method_streamed(val1=1, val2=2.34):
             data_values.append(data)
         assert data_values == ['I', 'am', 'the', 'very', 'model']
         assert await instance.instance_method("PING") == 'PONG'
