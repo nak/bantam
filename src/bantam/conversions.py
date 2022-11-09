@@ -9,7 +9,9 @@ from enum import Enum
 assert typing
 
 
-def normalize_to_json_compat(val: Any) -> typing.Dict[Any, Any]:
+def normalize_to_json_compat(val: Any) -> Any:
+    if val is None:
+        return None
     if hasattr(val, '__dataclass_fields__'):
         json_data = dataclasses.asdict(val)
         for key in json_data.keys():
@@ -32,7 +34,9 @@ def normalize_to_json_compat(val: Any) -> typing.Dict[Any, Any]:
     return json_data
 
 
-def normalize_from_json(json_data, typ):
+def normalize_from_json(json_data, typ) -> Any:
+    if typ is None or json_data is None:
+        return None
     if hasattr(typ, '_name') and (str(typ).startswith('typing.Union') or str(typ).startswith('typing.Optional')):
         typ = typ.__args__[0]
         if str(typ).startswith('typing.Optional') and json_data == 'null':
