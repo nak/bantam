@@ -97,7 +97,10 @@ class TestWebClient:
     @pytest.mark.asyncio
     @patch(target='aiohttp.ClientSession.get', new=mock_get)
     async def test_client(self):
-        MyClient: MockWebClientInterface = MockWebClientInterface.Client()['http://someendpoint/']
+        Client = MockWebClientInterface.Client()
+        MyClient: MockWebClientInterface = Client['http://someendpoint/']
+        MyClient2: MockWebClientInterface = Client['http://someendpoint2/']
+        assert MyClient2 != MyClient
         instance = await MyClient.constructor('data')
         assert await MyClient.static_method() == {'a': "1"}
         data_values = []
