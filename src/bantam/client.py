@@ -102,6 +102,7 @@ class WebInterface:
                                     url = f"{cls.end_point}/{cls._impl_name}/{api.name}{url_args}"
                                     async with aiohttp.ClientSession(timeout=api.timeout) as session:
                                         async with session.get(url) as resp:
+                                            resp.raise_for_status()
                                             async for data, _ in resp.content.iter_chunks():
                                                 if data:
                                                     data = data.decode('utf-8')
@@ -111,6 +112,7 @@ class WebInterface:
                                     payload = json.dumps({k: conversions.to_str(v) for k, v in kwargs.items()})
                                     async with aiohttp.ClientSession(timeout=api.timeout) as session:
                                         async with session.post(url, data=payload) as resp:
+                                            resp.raise_for_status()
                                             async for data, _ in resp.content.iter_chunks():
                                                 if data:
                                                     data = data.decode('utf-8')
@@ -149,6 +151,7 @@ class WebInterface:
                                     url = f"{base_url}{url_args}"
                                     async with aiohttp.ClientSession(timeout=api.timeout) as session:
                                         async with session.get(url) as resp:
+                                            resp.raise_for_status()
                                             data = (await resp.content.read()).decode('utf-8')
                                             if api.is_constructor:
                                                 if hasattr(cls, 'jsonrepr'):
@@ -159,9 +162,11 @@ class WebInterface:
                                                 return ClientImpl(self_id)
                                             return conversions.from_str(data, api.return_type)
                                 else:
-                                    payload = json.dumps({k: conversions.to_str(v) for k, v in kwargs.items()})
+                                    payload = json.dumps({conversions.to_str(k): conversions.to_str(v)
+                                                          for k, v in kwargs.items()})
                                     async with aiohttp.ClientSession(timeout=api.timeout) as session:
                                         async with session.post(base_url, data=payload) as resp:
+                                            resp.raise_for_status()
                                             data = (await resp.content.read()).decode('utf-8')
                                             if api.is_constructor:
                                                 self_id = json.loads(data)['self_id']
@@ -184,6 +189,7 @@ class WebInterface:
                                     url = f"{base_url}{url_args}"
                                     async with aiohttp.ClientSession(timeout=api.timeout) as session:
                                         async with session.get(url) as resp:
+                                            resp.raise_for_status()
                                             async for data, _ in resp.content.iter_chunks():
                                                 if data:
                                                     data = data.decode('utf-8')
@@ -193,6 +199,7 @@ class WebInterface:
                                     async with aiohttp.ClientSession(timeout=api.timeout) as session:
                                         async with session.post(base_url, data=payload) as resp:
                                             async for data, _ in resp.content.iter_chunks():
+                                                resp.raise_for_status()
                                                 if data:
                                                     data = data.decode('utf-8')
                                                     yield conversions.from_str(data, api.return_type)

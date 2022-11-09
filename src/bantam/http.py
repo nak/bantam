@@ -567,8 +567,8 @@ class WebApplication:
                 except Exception as e:
                     return Response(status=400, text=f"Error in post-processing of response: {e}")
                 return response
-            except Exception as e:
-                return Response(status=500, text=f"Server error: {e}")
+            except BaseException as e:
+                return Response(status=500, text=f"Server error: {e}", content_type="test/plain")
 
         invoke.clazz = WebApplication._instance_methods_class_map.get(api) if is_instance_method else None
         if method == RestMethod.GET:
@@ -646,6 +646,7 @@ class WebApplication:
                         await response.write(serialized)
                 except Exception as e:
                     print(str(e))
+                    raise asyncio.CancelledError(f"Error in server-side logic: {e}") from e
                 await response.write_eof()
                 return response
             else:
@@ -677,6 +678,8 @@ class WebApplication:
             return Response(status=400, text=f"Improperly formatted query: {str(e)}\n{traceback.format_exc()}")
         except HTTPException as e:
             return Response(status=e.status_code, text=f"{e}: \n{traceback.format_exc()}")
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            raise
         except Exception as e:
             return Response(status=500, text=f"{e}: \n{traceback.format_exc()}")
         finally:
@@ -750,6 +753,8 @@ class WebApplication:
             # call the underlying function:
             if addl_args:
                 kwargs.update(addl_args)
+            for k, v in kwargs.items():
+                kwargs[k] = from_str(v, api.arg_annotations[k])
             if api.is_instance_method:
                 self_id = kwargs.get('self')
                 if self_id is None:
@@ -784,6 +789,7 @@ class WebApplication:
                 except Exception as e:
                     print(str(e))
                     await async_q.put(None)
+                    raise RuntimeError(f"Execption in server-side logic: {e}") from e
                 await response.write_eof()
             else:
                 #################

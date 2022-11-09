@@ -24,7 +24,7 @@ def normalize_to_json_compat(val: Any) -> Any:
     elif type(val) in [dict] or (getattr(type(val), '_name', None) in ('Dict', 'Mapping')):
         json_data = {}
         for key, value in val.items():
-            json_data[key] = normalize_to_json_compat(value)
+            json_data[to_str(key)] = normalize_to_json_compat(value)
     elif type(val) in [list] or (getattr(type(val), '_name', None) in ('List', )):
         json_data = []
         for value in val:
@@ -38,9 +38,15 @@ def normalize_from_json(json_data, typ) -> Any:
     if typ is None or json_data is None:
         return None
     if hasattr(typ, '_name') and (str(typ).startswith('typing.Union') or str(typ).startswith('typing.Optional')):
-        typ = typ.__args__[0]
-        if str(typ).startswith('typing.Optional') and json_data == 'null':
-            return None
+        for arg in typ.__args__:
+            if arg in (str, int, float, ) and type(json_data) == arg:
+                return json_data
+            elif arg in (str, int, float):
+                continue
+            try:
+                return normalize_from_json(json_data, arg)
+            except Exception:
+                continue
     if _issubclass_safe(typ, Enum):
         for key in typ.__members__:
             t = type(typ.__members__[key].value)
@@ -58,19 +64,19 @@ def normalize_from_json(json_data, typ) -> Any:
     elif typ == bool:
         return json_data.lower() == 'true'
     elif getattr(typ, '_name', None) in ('Dict', 'Mapping'):
-        key_typ, elem_typ = eval(str(typ).split('[', maxsplit=1)[1][:-1])
-        d = dict(json_data)
-        for k, v in json_data.items():
-            d[normalize_from_json(k, key_typ)] = normalize_from_json(v, elem_typ)
-        return d
+        key_typ, elem_typ = typ.__args__
+        return {
+            normalize_from_json(k, key_typ):  normalize_from_json(v, elem_typ)
+            for k, v in json_data.items()
+        }
     elif getattr(typ, '_name', None) in ('List', ):
-        elem_typ = eval(str(typ).split('[', maxsplit=1)[1][:-1])
-        for index, value in enumerate(json_data):
-            json_data[index] = normalize_from_json(value, elem_typ)
-        return json_data
+        elem_typ = typ.__args__[0]
+        return [normalize_from_json(value, elem_typ) for value in json_data]
     elif hasattr(typ, '__dataclass_fields__'):
-        for name, field in typ.__dataclass_fields__.items():
-            json_data[name] = normalize_from_json(json_data[name], field.type)
+        return typ(**{
+            name: normalize_from_json(json_data[name], field.type)
+            for name, field in typ.__dataclass_fields__.items()
+        })
         return typ(**json_data)
     else:
         raise TypeError(f"Unsupported typ for web api: '{typ}'")
