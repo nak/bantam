@@ -22,23 +22,43 @@ Indices and Tables
 Introduction
 ============
 
-.. automodule:: bantam.web
+.. automodule:: bantam
 
 The specific WebApplication API is simple, and only the *start* method is of importance:
 
-.. autoclass:: bantam.web.WebApplication
+.. autoclass:: bantam.http.WebApplication
     :members: DuplicateRoute, start
 
+Of particular interest is the modules parameter of the start method.  This determines which modules and therefore
+which classes and their the @web_api definitions are loaded.
+
+Allowed Type Annotations
+========================
+
+Being http-based, the magic behind the scenes in abstracting the HTTP protocol away from the client occurs through
+json serialization and deserialization.  This means that only certain type hints are allowed in the signature of a
+method decorated with @web_api:
+
+#. The basic builtins of *int*, *float*, *str*, *bool*
+#. For arguments, the builtins of *list*, *set*, *tuple* and *dict*; the return type must be explicit
+   (e.g. *Dict[Union[int, str]]*),as the system must know the type when converting fom a generic json string
+#. Anything hat is decorated with @dataclass and whose element types meet these criteria (recursively)
+#. Any typing *Dict*, *List*, *Set*, *Tuple*, provided the (key and) element type recursively meet these criteria
+#. Use of *Union* and *Optional* are allowed
+
+All arguments and the return type must be explicitly specified in the signature of @web_api-decorated methods.
 
 Client-Side Code Generation
----------------------------
+===========================
 
-.. automodule:: bantam.js
+As an even greater convenience,
+Bantam provides means of auto-generating both javascript and client code to interact with a bantam-enabled application.
+Javascript in particular can be generate on-the-fly and served upon startup.
 
-Generation on the fly
-*********************
+Javascript
+----------
 
-As an even greater convenience, the code can be generated on the fly, when the *WebApplication* is created.
+the code can be generated on the fly, when the *WebApplication* is created.
 By providing two parameters to the init call to your *WebApplication*:
 
 * *static_path*: the root path to serve static files
@@ -65,6 +85,19 @@ Furthermore, the web api that is registered is also directly callable as a Pytho
 concept of "library-as-a-service", where the code can act directly as a library or as a distributed Rest-ful
 service transparently to the caller.
 
+To provide more detail on what this generation look like:
+
+
+.. automodule:: bantam.js
+
+
+Python
+------
+
+.. automodule:: bantam.client
+
+Advanced Discussion on Parameters
+=================================
 
 Optional Parameters
 -------------------
@@ -157,8 +190,8 @@ Here is a bit of HTML to implement the client-side:
 
 Loading the page http://localhost:8080/static/index.html will execute the code.
 
-Streaming Requests
-==================
+Streamed Requests
+-----------------
 You can also make requests that stream (upload) data to the server.  Here again, we add two more (final) allowable
 types for parameters that specify a parameter provides an (async) iterator for lopping over and sending data chunk
 by chunk:

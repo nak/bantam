@@ -1,3 +1,23 @@
+"""
+Bantam provides and abstraction to easily declare Python clients to interact with a Bantam web application.
+Bantam even provide a means of auto-generating the code for clients.
+
+To auto-generate client code, an application *bantam_generate* is provided:
+
+.. code-block:: bash
+
+   bantam_generate <module-name> [<suffix>]
+
+This will generate code to stdout for client classes that match the @web_api's defined in the provided module.  Each
+client class is named the same as the class it is derived from, unless the optional second argument is provided. If
+provided the class name will be appended with this suffix.
+
+You can also generate this code manually if desired, of course, following the pattern from auto-generation of code.
+This code provides an abstraction to the @web_api interface implementation, stand-alone from the implementation code
+if desired. (e.g. providing a stand-alone client package for install separate from the implementation server-side
+package.
+
+"""
 import json
 import inspect
 from abc import ABC
