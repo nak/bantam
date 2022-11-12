@@ -2,7 +2,7 @@ import os
 
 import setuptools
 
-VERSION = "2.0.2"
+VERSION = "2.0.3"
 
 setuptools.setup(
     name='bantam',
@@ -29,5 +29,15 @@ setuptools.setup(
     install_requires=[
         line for line in open(os.path.join(os.path.dirname(__file__), 'requirements.txt')).read().splitlines() if
          not 'pytest' in line
-    ]
+    ],
+    long_description="""
+Bantam is a Python package for building http-based micro-services.
+It abstracts away any knowledge of routes, mappings and translations
+between javascript and Python.  It even provides a means of
+auto-generating the javascript client interface to you app
+on the fly and serve it to web-based/javascript-based clients.
+
+See https://nak.github.io/bantam_docs/ for details.
+
+    """,
 )
