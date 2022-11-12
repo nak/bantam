@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict, List, Union, Tuple, Set
 
 import pytest
 
@@ -8,6 +8,12 @@ from bantam.conversions import to_str, from_str
 
 
 class Test:
+    def test_to_str_from_tuple(self):
+        assert to_str((1, '2')) == json.dumps([1, '2'])
+
+    def test_to_str_from_set(self):
+        assert to_str({1, '2'}) in (json.dumps([1, '2']), json.dumps(['2', 1]))
+
     def test_to_str_from_int(self):
         assert to_str(1343) == "1343"
         assert to_str(-1343) == "-1343"
@@ -59,11 +65,17 @@ class Test:
         assert from_str("false", bool) is False
 
     def test_list_from_str(self):
-        assert from_str("[0, -3834, 3419]", list) == [0, -3834, 3419]
+        assert from_str("[0, -3834, 3419]", List[int]) == [0, -3834, 3419]
+
+    def test_set_from_str(self):
+        assert from_str("[0, -3834, 3419]", Set[int]) == {0, -3834, 3419}
+
+    def test_tuple_from_str(self):
+        assert from_str("[0, -3834, 3419]", Tuple[int]) == (0, -3834, 3419)
 
     def test_dict_from_str(self):
         d = {'name': 'Jane', 'val': 34}
-        assert from_str(json.dumps(d), dict) == d
+        assert from_str(json.dumps(d), Dict[str, Union[str, int]]) == d
 
     def test_dataclass_from_str(self):
 

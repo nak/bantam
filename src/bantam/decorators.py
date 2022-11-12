@@ -9,8 +9,6 @@ from bantam.api import RestMethod
 
 WebApi = Callable[..., Awaitable[Any]]
 
-_bantam_web_apis = {}
-
 
 PreProcessor = Callable[[Request], Union[None, Dict[str, Any]]]
 PostProcessor = Callable[[Union[Response, StreamResponse]], Union[Response, StreamResponse]]
@@ -55,7 +53,7 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
     def wrapper(obj: Union[WebApi, staticmethod]):
         is_static = isinstance(obj, staticmethod)
         is_classmethod = isinstance(obj, classmethod)
-        if not is_static and is_constructor:
+        if not (is_static or is_classmethod) and is_constructor:
             raise TypeError("@web_api's that are declared constructors must be static methods")
         if is_static and expire_obj:
             raise TypeError("@web_api's expire_obj param can only be set True for instance methods")

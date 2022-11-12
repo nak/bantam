@@ -23,6 +23,7 @@ class API:
         self._clazz = clazz
         self._is_class_method = is_class_method
         self._is_instance_method = is_instance_method
+        self._is_static = not self._is_class_method and not self._is_instance_method
         self._expire_obj = expire_on_exit
         self._func = func
         self._real_func = func if not is_class_method else func.__func__
@@ -74,6 +75,10 @@ class API:
     @property
     def is_class_method(self):
         return self._is_class_method
+
+    @property
+    def is_static(self):
+        return self._is_static
 
     @property
     def is_constructor(self) -> bool:

@@ -1,6 +1,7 @@
 import json
 import inspect
-from typing import TypeVar, Type, Optional
+from abc import ABC
+from typing import TypeVar, Type, Optional, Any
 
 import aiohttp
 
@@ -11,7 +12,7 @@ from bantam.api import RestMethod, API
 T = TypeVar('T', bound="WebClient")
 
 
-class WebInterface:
+class WebInterface(ABC):
 
     # noinspection PyPep8Naming
     @classmethod
@@ -21,7 +22,7 @@ class WebInterface:
         class ClientFactory:
             _cache = {}
 
-            def __getitem__(self: T, end_point: str) -> Type["ClientImpl"]:
+            def __getitem__(self: T, end_point: str) -> Any:
                 if end_point in ClientFactory._cache:
                     return ClientFactory._cache[end_point]
                 while end_point.endswith('/'):
@@ -34,12 +35,93 @@ class WebInterface:
                     _clazz = cls
                     if not impl_name and not cls.__name__.endswith('Interface'):
                         raise SyntaxError("You must either supply an explicit name in Client for implementing class, "
-                                          "or name the class <implement-class-name>Interface (aka wit a suffix of 'Interface'")
+                                          "or name the class <implement-class-name>Interface (aka wit a suffix of "
+                                          "'Interface'")
                     else:
                         _impl_name = impl_name or cls.__name__[:-9]
 
                     def __init__(self, self_id: str):
                         self._self_id = self_id
+
+                    @classmethod
+                    def add_instance_method(cls, name_: str, method_):
+                        # instance method
+                        if name_ in ('Client', '_construct'):
+                            return
+                        if not hasattr(method_, '_bantam_web_api'):
+                            raise SyntaxError(f"All methods of class WebClient most be decorated with '@web_api'")
+                        # noinspection PyProtectedMember
+                        if method_._bantam_web_api.has_streamed_request:
+                            raise SyntaxError(f"Streamed request for WebClient's are not supported at this time")
+                        # noinspection PyProtectedMember
+                        api: API = method_._bantam_web_api
+
+                        async def instance_method(this, *args, **kwargs_):
+                            nonlocal api
+                            if args:
+                                raise SystemError(f"web apis should internally only be called with kwargs, but got args"
+                                                  f" {args}")
+                            rest_method = api.method
+                            arg_spec = inspect.getfullargspec(api._func)
+                            missing_args = {arg for arg in arg_spec.args if arg != 'self' and arg not in kwargs_}
+                            if missing_args:
+                                raise ValueError(f"No values provided for arguments {', '.join(missing_args)}")
+
+                            while cls.end_point.endswith('/'):
+                                cls.end_point = cls.end_point[:-1]
+                            if rest_method.value == RestMethod.GET.value:
+                                url_args = cls._generate_url_args(self_id=this._self_id, kwargs=kwargs_)
+                                url = f"{cls.end_point}/{cls._impl_name}/{api.name}{url_args}"
+                                async with aiohttp.ClientSession(timeout=api.timeout) as session:
+                                    async with session.get(url) as resp:
+                                        data = (await resp.content.read()).decode('utf-8')
+                                        return conversions.from_str(data, api.return_type)
+                            else:
+                                url = f"{cls.end_point}/{cls._impl_name}/{api.name}?self={this._self_id}"
+                                payload = json.dumps({k: conversions.to_str(v) for k, v in kwargs_.items()})
+                                async with aiohttp.ClientSession(timeout=api.timeout) as session:
+                                    async with session.post(url, data=payload) as resp:
+                                        data = (await resp.content.read()).decode('utf-8')
+                                        return conversions.from_str(data, api.return_type)
+
+                        async def instance_method_streamed(this, *args, **kwargs_):
+                            nonlocal api
+                            if args:
+                                raise SystemError(f"web apis should internally only be called with kwargs, but got args"
+                                                  f" {args}")
+                            method_api = api.method
+                            rest_method = method_api._bantam_web_api.method
+                            arg_spec = inspect.getfullargspec(api._func)
+                            missing_args = {arg for arg in arg_spec.args if arg != 'self' and arg not in kwargs_}
+                            if missing_args:
+                                raise ValueError(f"No values provided for arguments {', '.join(missing_args)}")
+                            while cls.end_point.endswith('/'):
+                                cls.end_point = cls.end_point[:-1]
+                            if rest_method == RestMethod.GET:
+                                url_args = cls._generate_url_args(self_id=this._self_id, kwargs=kwargs_)
+                                url = f"{cls.end_point}/{cls._impl_name}/{api.name}{url_args}"
+                                async with aiohttp.ClientSession(timeout=api.timeout) as session:
+                                    async with session.get(url) as resp:
+                                        resp.raise_for_status()
+                                        async for data, _ in resp.content.iter_chunks():
+                                            if data:
+                                                data = data.decode('utf-8')
+                                                yield conversions.from_str(data, api.return_type)
+                            else:
+                                url = f"{cls.end_point}/{cls._impl_name}/{api.name}?self={this._self_id}"
+                                payload = json.dumps({k: conversions.to_str(v) for k, v in kwargs_.items()})
+                                async with aiohttp.ClientSession(timeout=api.timeout) as session:
+                                    async with session.post(url, data=payload) as resp:
+                                        resp.raise_for_status()
+                                        async for data, _ in resp.content.iter_chunks():
+                                            if data:
+                                                data = data.decode('utf-8')
+                                                yield conversions.from_str(data, api.return_type)
+
+                        if api.has_streamed_response:
+                            setattr(cls, name_, instance_method_streamed)
+                        else:
+                            setattr(cls, name_, instance_method)
 
                     @classmethod
                     def _generate_url_args(cls, kwargs, self_id: Optional[str] = None):
@@ -49,177 +131,217 @@ class WebInterface:
                             '&'.join([f"{k}={conversions.to_str(v)}" for k, v in kwargs.items() if v is not None])
 
                     @classmethod
+                    def add_static_method(cls, name_: str, method_):
+                        # class/static methods
+
+                        if not hasattr(method_, '_bantam_web_api'):
+                            raise SyntaxError(f"All methods of class WebClient most be decorated with '@web_api'")
+                        # noinspection PyProtectedMember
+                        if method_._bantam_web_api.has_streamed_request:
+                            raise SyntaxError(f"Streamed request for WebClient's are not supported at this time")
+                        # noinspection PyProtectedMember
+                        api: API = method_._bantam_web_api
+                        base_url = f"{cls.end_point}/{cls._impl_name}/{name_}"
+
+                        # noinspection PyDecorator
+                        @staticmethod
+                        async def static_method(*args, **kwargs_):
+                            nonlocal api
+                            if args:
+                                raise SystemError(f"web apis should only be called with kwargs, but gut args: {args}")
+                            arg_spec = inspect.getfullargspec(api._func)
+                            missing_args = {arg for arg in arg_spec.args if arg != 'cls' and arg not in kwargs_}
+                            if missing_args:
+                                raise ValueError(f"No values provided for arguments {', '.join(missing_args)}")
+                            rest_method = api._func._bantam_web_api.method
+                            while cls.end_point.endswith('/'):
+                                cls.end_point = cls.end_point[:-1]
+                            if rest_method.value == RestMethod.GET.value:
+                                url_args = cls._generate_url_args(kwargs=kwargs_)
+                                url = f"{base_url}{url_args}"
+                                async with aiohttp.ClientSession(timeout=api.timeout) as session:
+                                    async with session.get(url) as resp:
+                                        resp.raise_for_status()
+                                        data = (await resp.content.read()).decode('utf-8')
+                                        if api.is_constructor:
+                                            if hasattr(cls, 'jsonrepr'):
+                                                repr_ = cls.jsonrepr(data)
+                                                self_id = repr_[api.uuid_param or 'self_id']
+                                            else:
+                                                self_id = kwargs_[api.uuid_param or 'self_id']
+                                            return cls(self_id)
+                                        return conversions.from_str(data, api.return_type)
+                            else:
+                                payload = json.dumps({conversions.to_str(k): conversions.to_str(v)
+                                                      for k, v in kwargs_.items()})
+                                async with aiohttp.ClientSession(timeout=api.timeout) as session:
+                                    async with session.post(base_url, data=payload) as resp:
+                                        resp.raise_for_status()
+                                        data = (await resp.content.read()).decode('utf-8')
+                                        if api.is_constructor:
+                                            self_id = json.loads(data)['self_id']
+                                            return cls(self_id)
+                                        return conversions.from_str(data, api.return_type)
+
+                        # noinspection PyDecorator
+                        @staticmethod
+                        async def static_method_streamed(*args, **kwargs_):
+                            nonlocal api
+                            if args:
+                                raise SystemError(f"web apis should only be called with kwargs, but gut args: {args}")
+                            rest_method = api._func._bantam_web_api.method
+                            arg_spec = inspect.getfullargspec(api._func)
+                            missing_args = {arg for arg in arg_spec.args if arg != 'cls' and arg not in kwargs_}
+                            if missing_args:
+                                raise ValueError(f"No values provided for arguments {', '.join(missing_args)}")
+                            while cls.end_point.endswith('/'):
+                                cls.end_point = cls.end_point[:-1]
+                            if rest_method.value == RestMethod.GET.value:
+                                url_args = cls._generate_url_args(kwargs=kwargs_)
+                                url = f"{base_url}{url_args}"
+                                async with aiohttp.ClientSession(timeout=api.timeout) as session:
+                                    async with session.get(url) as resp:
+                                        resp.raise_for_status()
+                                        async for data, _ in resp.content.iter_chunks():
+                                            if data:
+                                                data = data.decode('utf-8')
+                                                yield conversions.from_str(data, api.return_type)
+                            else:
+                                payload = json.dumps({k: conversions.to_str(v) for k, v in kwargs_.items()})
+                                async with aiohttp.ClientSession(timeout=api.timeout) as session:
+                                    async with session.post(base_url, data=payload) as resp:
+                                        async for data, _ in resp.content.iter_chunks():
+                                            resp.raise_for_status()
+                                            if data:
+                                                data = data.decode('utf-8')
+                                                yield conversions.from_str(data, api.return_type)
+
+                        if api.has_streamed_response:
+                            setattr(ClientImpl, api.name, static_method_streamed)
+                        else:
+                            setattr(ClientImpl, api.name, static_method)
+
+                    @classmethod
+                    def add_class_method(cls, name_: str, method_):
+                        # class/static methods
+
+                        if not hasattr(method_, '_bantam_web_api'):
+                            raise SyntaxError(f"All methods of class WebClient most be decorated with '@web_api'")
+                        # noinspection PyProtectedMember
+                        if method_._bantam_web_api.has_streamed_request:
+                            raise SyntaxError(f"Streamed request for WebClient's are not supported at this time")
+                        # noinspection PyProtectedMember
+                        api: API = method_._bantam_web_api
+                        base_url = f"{cls.end_point}/{cls._impl_name}/{name_}"
+
+                        # noinspection PyDecorator,PyShadowingNames
+                        @classmethod
+                        async def class_method(cls, *args, **kwargs_):
+                            nonlocal api
+                            if args:
+                                raise SystemError(f"web apis should internally only be called with kwargs, but got args"
+                                                  f" {args}")
+                            # noinspection PyBroadException
+                            try:
+                                arg_spec = inspect.getfullargspec(api._func)
+                            except Exception:
+                                arg_spec = inspect.getfullargspec(api._func.__func__)
+                            missing_args = {arg for arg in arg_spec.args if arg != 'cls' and arg not in kwargs_}
+                            if missing_args:
+                                raise ValueError(f"No values provided for arguments {', '.join(missing_args)}")
+                            rest_method = api._func._bantam_web_api.method
+                            while cls.end_point.endswith('/'):
+                                cls.end_point = cls.end_point[:-1]
+                            if rest_method.value == RestMethod.GET.value:
+                                url_args = cls._generate_url_args(kwargs=kwargs_)
+                                url = f"{base_url}{url_args}"
+                                async with aiohttp.ClientSession(timeout=api.timeout) as session:
+                                    async with session.get(url) as resp:
+                                        resp.raise_for_status()
+                                        data = (await resp.content.read()).decode('utf-8')
+                                        if api.is_constructor:
+                                            if hasattr(cls, 'jsonrepr'):
+                                                repr_ = cls.jsonrepr(data)
+                                                self_id = repr_[api.uuid_param or 'self_id']
+                                            else:
+                                                self_id = kwargs_[api.uuid_param or 'self_id']
+                                            return cls(self_id)
+                                        return conversions.from_str(data, api.return_type)
+                            else:
+                                payload = json.dumps({conversions.to_str(k): conversions.to_str(v)
+                                                      for k, v in kwargs_.items()})
+                                async with aiohttp.ClientSession(timeout=api.timeout) as session:
+                                    async with session.post(base_url, data=payload) as resp:
+                                        resp.raise_for_status()
+                                        data = (await resp.content.read()).decode('utf-8')
+                                        if api.is_constructor:
+                                            self_id = json.loads(data)['self_id']
+                                            return cls(self_id)
+                                        return conversions.from_str(data, api.return_type)
+
+                        # noinspection PyDecorator
+                        @classmethod
+                        async def class_method_streamed(*args, **kwargs_):
+                            nonlocal api
+                            if args:
+                                raise SystemError(f"web apis should internally only be called with kwargs, but got args"
+                                                  f" {args}")
+                            rest_method = api._func._bantam_web_api.method
+                            arg_spec = inspect.getfullargspec(api._func)
+                            missing_args = {arg for arg in arg_spec.args if arg != 'cls' and arg not in kwargs_}
+                            if missing_args:
+                                raise ValueError(f"No values provided for arguments {', '.join(missing_args)}")
+                            while cls.end_point.endswith('/'):
+                                cls.end_point = cls.end_point[:-1]
+                            if rest_method.value == RestMethod.GET.value:
+                                url_args = cls._generate_url_args(kwargs=kwargs_)
+                                url = f"{base_url}{url_args}"
+                                async with aiohttp.ClientSession(timeout=api.timeout) as session:
+                                    async with session.get(url) as resp:
+                                        resp.raise_for_status()
+                                        async for data, _ in resp.content.iter_chunks():
+                                            if data:
+                                                data = data.decode('utf-8')
+                                                yield conversions.from_str(data, api.return_type)
+                            else:
+                                payload = json.dumps({k: conversions.to_str(v) for k, v in kwargs_.items()})
+                                async with aiohttp.ClientSession(timeout=api.timeout) as session:
+                                    async with session.post(base_url, data=payload) as resp:
+                                        async for data, _ in resp.content.iter_chunks():
+                                            resp.raise_for_status()
+                                            if data:
+                                                data = data.decode('utf-8')
+                                                yield conversions.from_str(data, api.return_type)
+
+                        if api.has_streamed_response:
+                            setattr(ClientImpl, api.name, class_method_streamed)
+                        else:
+                            setattr(ClientImpl, api.name, class_method)
+
+                    @classmethod
                     def _construct(cls):
-                        def add_instance_method(name_: str, method_):
-                            # instance method
-                            if name_ in ('Client', '_construct'):
-                                return
-                            if not hasattr(method_, '_bantam_web_method'):
-                                raise SyntaxError(f"All methods of class WebClient most be decorated with '@web_api'")
-                            # noinspection PyProtectedMember
-                            if method_._bantam_web_api.has_streamed_request:
-                                raise SyntaxError(f"Streamed request for WebClient's are not supported at this time")
-                            # noinspection PyProtectedMember
-                            api: API = method_._bantam_web_api
-
-                            async def instance_method(self, *args, **kwargs_):
-                                nonlocal api
-                                rest_method = api.method
-                                arg_spec = inspect.getfullargspec(api._func)
-                                kwargs = {arg_spec.args[n + 1]: args[n] for n in range(len(args))
-                                          if args[n] is not None}  # skip self as first argspec
-                                kwargs.update(kwargs_)
-
-                                while cls.end_point.endswith('/'):
-                                    cls.end_point = cls.end_point[:-1]
-                                if rest_method.value == RestMethod.GET.value:
-                                    url_args = cls._generate_url_args(self_id=self._self_id, kwargs=kwargs)
-                                    url = f"{cls.end_point}/{cls._impl_name}/{api.name}{url_args}"
-                                    async with aiohttp.ClientSession(timeout=api.timeout) as session:
-                                        async with session.get(url) as resp:
-                                            data = (await resp.content.read()).decode('utf-8')
-                                            return conversions.from_str(data, api.return_type)
-                                else:
-                                    url = f"{cls.end_point}/{cls._impl_name}/{api.name}?self={self._self_id}"
-                                    payload = json.dumps({k: conversions.to_str(v) for k, v in kwargs.items()})
-                                    async with aiohttp.ClientSession(timeout=api.timeout) as session:
-                                        async with session.post(url, data=payload) as resp:
-                                            data = (await resp.content.read()).decode('utf-8')
-                                            return conversions.from_str(data, api.return_type)
-
-                            async def instance_method_streamed(self, *args, **kwargs_):
-                                nonlocal api
-                                method_api = api.method
-                                rest_method = method_api._bantam_web_method
-                                arg_spec = inspect.getfullargspec(api._func)
-                                kwargs = {arg_spec.args[n]: args[n] for n in range(len(args)) if args[n] is not None}
-                                kwargs.update(kwargs_)
-
-                                while cls.end_point.endswith('/'):
-                                    cls.end_point = cls.end_point[:-1]
-                                if rest_method == RestMethod.GET:
-                                    url_args = cls._generate_url_args(self_id=self._self_id, kwargs=kwargs)
-                                    url = f"{cls.end_point}/{cls._impl_name}/{api.name}{url_args}"
-                                    async with aiohttp.ClientSession(timeout=api.timeout) as session:
-                                        async with session.get(url) as resp:
-                                            resp.raise_for_status()
-                                            async for data, _ in resp.content.iter_chunks():
-                                                if data:
-                                                    data = data.decode('utf-8')
-                                                    yield conversions.from_str(data, api.return_type)
-                                else:
-                                    url = f"{cls.end_point}/{cls._impl_name}/{api.name}?self={self._self_id}"
-                                    payload = json.dumps({k: conversions.to_str(v) for k, v in kwargs.items()})
-                                    async with aiohttp.ClientSession(timeout=api.timeout) as session:
-                                        async with session.post(url, data=payload) as resp:
-                                            resp.raise_for_status()
-                                            async for data, _ in resp.content.iter_chunks():
-                                                if data:
-                                                    data = data.decode('utf-8')
-                                                    yield conversions.from_str(data, api.return_type)
-
-                            if api.has_streamed_response:
-                                setattr(cls, name_, instance_method_streamed)
-                            else:
-                                setattr(cls, name_, instance_method)
-
-                        def add_static_method(name_: str, method_):
-                            # class/static methods
-
-                            if not hasattr(method_, '_bantam_web_method'):
-                                raise SyntaxError(f"All methods of class WebClient most be decorated with '@web_api'")
-                            # noinspection PyProtectedMember
-                            if method_._bantam_web_api.has_streamed_request:
-                                raise SyntaxError(f"Streamed request for WebClient's are not supported at this time")
-                            # noinspection PyProtectedMember
-                            api: API = method_._bantam_web_api
-                            base_url = f"{cls.end_point}/{cls._impl_name}/{name_}"
-
-                            # noinspection PyDecorator
-                            @staticmethod
-                            async def static_method(*args, **kwargs_):
-                                nonlocal api
-                                arg_spec = inspect.getfullargspec(api._func)
-                                kwargs = {arg_spec.args[n]: args[n] for n in range(len(args))
-                                          if args[n] is not None}
-                                kwargs.update(kwargs_)
-                                rest_method = api._func._bantam_web_method
-                                while cls.end_point.endswith('/'):
-                                    cls.end_point = cls.end_point[:-1]
-                                if rest_method.value == RestMethod.GET.value:
-                                    url_args = cls._generate_url_args(kwargs=kwargs)
-                                    url = f"{base_url}{url_args}"
-                                    async with aiohttp.ClientSession(timeout=api.timeout) as session:
-                                        async with session.get(url) as resp:
-                                            resp.raise_for_status()
-                                            data = (await resp.content.read()).decode('utf-8')
-                                            if api.is_constructor:
-                                                if hasattr(cls, 'jsonrepr'):
-                                                    repr_ = cls.jsonrepr(data)
-                                                    self_id = repr_[api.uuid_param or 'self_id']
-                                                else:
-                                                    self_id = kwargs[api.uuid_param or 'self_id']
-                                                return ClientImpl(self_id)
-                                            return conversions.from_str(data, api.return_type)
-                                else:
-                                    payload = json.dumps({conversions.to_str(k): conversions.to_str(v)
-                                                          for k, v in kwargs.items()})
-                                    async with aiohttp.ClientSession(timeout=api.timeout) as session:
-                                        async with session.post(base_url, data=payload) as resp:
-                                            resp.raise_for_status()
-                                            data = (await resp.content.read()).decode('utf-8')
-                                            if api.is_constructor:
-                                                self_id = json.loads(data)['self_id']
-                                                return cls(self_id)
-                                            return conversions.from_str(data, api.return_type)
-
-                            # noinspection PyDecorator
-                            @staticmethod
-                            async def static_method_streamed(*args, **kwargs_):
-                                nonlocal api
-                                rest_method = api._func._bantam_web_method
-                                arg_spec = inspect.getfullargspec(api._func)
-                                kwargs = {arg_spec.args[n]: args[n] for n in range(len(args))
-                                          if args[n] is not None}
-                                kwargs.update(kwargs_)
-                                while cls.end_point.endswith('/'):
-                                    cls.end_point = cls.end_point[:-1]
-                                if rest_method.value == RestMethod.GET.value:
-                                    url_args = cls._generate_url_args(kwargs=kwargs)
-                                    url = f"{base_url}{url_args}"
-                                    async with aiohttp.ClientSession(timeout=api.timeout) as session:
-                                        async with session.get(url) as resp:
-                                            resp.raise_for_status()
-                                            async for data, _ in resp.content.iter_chunks():
-                                                if data:
-                                                    data = data.decode('utf-8')
-                                                    yield conversions.from_str(data, api.return_type)
-                                else:
-                                    payload = json.dumps({k: conversions.to_str(v) for k, v in kwargs.items()})
-                                    async with aiohttp.ClientSession(timeout=api.timeout) as session:
-                                        async with session.post(base_url, data=payload) as resp:
-                                            async for data, _ in resp.content.iter_chunks():
-                                                resp.raise_for_status()
-                                                if data:
-                                                    data = data.decode('utf-8')
-                                                    yield conversions.from_str(data, api.return_type)
-
-                            if api.has_streamed_response:
-                                setattr(ClientImpl, api.name, static_method_streamed)
-                            else:
-                                setattr(ClientImpl, api.name, static_method)
-
-                        for name, method in inspect.getmembers(cls._clazz, predicate=inspect.isfunction):
+                        for name, method in inspect.getmembers(
+                                cls._clazz,
+                                predicate=lambda x: inspect.ismethod(x) or inspect.isfunction(x)):
                             if name in ('__init__', '_construct', 'Client', 'jsonrepr'):
                                 continue
-                            if not method._bantam_web_api.is_instance_method:
-                                add_static_method(name, method)
+                            if not hasattr(method, '_bantam_web_api'):
+                                raise SyntaxError(f"classes inheriting from WebInterface should only implement "
+                                                  "method decorated with @web_api")
+                            if method._bantam_web_api.is_static:
+                                cls.add_static_method(name, method)
+                            elif method._bantam_web_api.is_class_method:
+                                cls.add_class_method(name, method)
                             else:
-                                add_instance_method(name, method)
+                                cls.add_instance_method(name, method)
 
                 ClientImpl.end_point = end_point
-                ClientImpl._construct()
-                ClientFactory._cache[end_point] = ClientImpl
-                return ClientImpl
+
+                # abstractmethod implementations added dynamcially in ClientImple._cosntruct
+                # cannot be added before processed by interpreter, so have to create one more level
+                class ClientImplSane(ClientImpl):
+                    ClientImpl._construct()
+                ClientFactory._cache[end_point] = ClientImplSane
+                return ClientImplSane
 
         return ClientFactory()

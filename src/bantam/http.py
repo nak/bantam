@@ -211,6 +211,17 @@ class WebApplication:
         self._started = False
         self._preprocessor: Optional[PreProcessor] = None
         self._postprocessor: Optional[PostProcessor] = None
+        self._all_apis: List[API] = []
+        self._allowed_get_routes = {}
+        for module in [m for m in modules if m in self.module_mapping_get]:
+            self._allowed_get_routes.update(self.module_mapping_get[module])
+            for api in self.module_mapping_get[module].values():
+                self._all_apis.append(api)
+        allowed_post_routes = {}
+        for module in [m for m in modules if m in self.module_mapping_post]:
+            allowed_post_routes.update(self.module_mapping_post[module])
+            for api in self.module_mapping_get[module].values():
+                self._all_apis.append(api)
 
     def _generate_rest_docs(self):
         rst_out = self._static_path.joinpath('_developer_docs.rst')
@@ -344,7 +355,7 @@ class WebApplication:
 
     # noinspection PyProtectedMember
     async def start(self,
-                    modules: List[str] = None,
+                    modules: List[str],
                     host: Optional[str] = None,
                     port: Optional[int] = None,
                     path: Optional[str] = None,
@@ -373,51 +384,35 @@ class WebApplication:
         """
         # noinspection PyProtectedMember
         from aiohttp.web import _run_app as web_run_app
-        if modules:
-            for module in modules:
-                # ensures web api's are loaded:
-                mod = importlib.import_module(module)
-                for api in self.module_mapping_get.get(module, {}).values():
-                    if api.name in ['_expire']:
-                        continue
-                    if api.is_class_method:
-                        class_name, method_name = api._real_func.__qualname__.split('.')
-                        api._func = getattr(getattr(mod, class_name), method_name)
-                    self._process_module_classes(mod, api)
-                for api in self.module_mapping_post.get(module, {}).values():
-                    if api.name in ['_expire']:
-                        continue
-                    if api.is_class_method:
-                        class_name, method_name = api._real_func.__qualname__.split('.')
-                        api._func = getattr(getattr(mod, class_name), method_name)
-                    self._process_module_classes(mod, api)
-            allowed_get_routes = {}
-            for module in [m for m in modules if m in self.module_mapping_get]:
-                allowed_get_routes.update(self.module_mapping_get[module])
-            for route, api_get in allowed_get_routes.items():
-                log.debug(f">>>>>>>>>> GET ROUTE {route}")
-                self._web_app.router.add_get(route, wrap(self, api_get))
-            allowed_post_routes = {}
-            for module in [m for m in modules if m in self.module_mapping_post]:
-                allowed_post_routes.update(self.module_mapping_post[module])
-            for route, api_post in allowed_post_routes.items():
-                log.debug(f">>>>>>>>>> POST ROUTE {route}")
-                self._web_app.router.add_post(route, wrap(self, api_post))
-        else:
-            # TODO : to be remove on next major version release, and make modules explicitly required
-            for api in self._all_methods:
+        for module in modules:
+            # ensures web api's are loaded:
+            mod = importlib.import_module(module)
+            for api in self.module_mapping_get.get(module, {}).values():
                 if api.name in ['_expire']:
                     continue
-                mod = importlib.import_module(api.module)
+                if api.is_class_method:
+                    class_name, method_name = api._real_func.__qualname__.split('.')
+                    api._func = getattr(getattr(mod, class_name), method_name)
                 self._process_module_classes(mod, api)
-            for route, api_get in self.routes_get.items():
-                log.error(f">>>>>>>>>> ROUTE {route}")
-                self._web_app.router.add_get(route, wrap(self, api_get))
-
-            for route, api_post in self.routes_post.items():
-                log.debug(f">>>>>>>>>> POST ROUTE {route}")
-                self._web_app.router.add_post(route, wrap(self, api_post))
-
+            for api in self.module_mapping_post.get(module, {}).values():
+                if api.name in ['_expire']:
+                    continue
+                if api.is_class_method:
+                    class_name, method_name = api._real_func.__qualname__.split('.')
+                    api._func = getattr(getattr(mod, class_name), method_name)
+                self._process_module_classes(mod, api)
+        allowed_get_routes = {}
+        for module in [m for m in modules if m in self.module_mapping_get]:
+            allowed_get_routes.update(self.module_mapping_get[module])
+        for route, api_get in allowed_get_routes.items():
+            log.debug(f">>>>>>>>>> GET ROUTE {route}")
+            self._web_app.router.add_get(route, wrap(self, api_get))
+        allowed_post_routes = {}
+        for module in [m for m in modules if m in self.module_mapping_post]:
+            allowed_post_routes.update(self.module_mapping_post[module])
+        for route, api_post in allowed_post_routes.items():
+            log.debug(f">>>>>>>>>> POST ROUTE {route}")
+            self._web_app.router.add_post(route, wrap(self, api_post))
         if self._js_bundle_name:
             if self._static_path is None:
                 raise ValueError("If 'js_bundle_name' is specified, 'static_path' cannot be None")
@@ -461,8 +456,7 @@ class WebApplication:
         return WebApplication._context[frame].headers
 
     # noinspection PyProtectedMember
-    @classmethod
-    def _process_module_classes(cls, mod: types.ModuleType, api: API):
+    def _process_module_classes(self, mod: types.ModuleType, api: API):
         # noinspection PyProtectedMember
         def process_class(clazz_: Type):
             if hasattr(clazz_, '_expire') or hasattr(clazz_, '_create'):
@@ -474,7 +468,7 @@ class WebApplication:
                 if '__uuid' in kargs or (api.uuid_param is not None and api.uuid_param in kargs):
                     self_id = kargs[api.uuid_param] if api.uuuid_param is not None else kargs['__uuid']
                     del kargs['__uuid']
-                    if self_id in cls.ObjectRepo.instances:
+                    if self_id in self.ObjectRepo.instances:
                         raise HTTPException(404, f"UUid {self_id} already in use. uuid's must be unique")
                 instance = clazz_(*args, **kargs)
                 if hasattr(clazz_, '__aenter__'):
@@ -497,25 +491,25 @@ class WebApplication:
                 """
             clazz_._create.__qualname__ = f"{clazz_.__name__}._create"
             # noinspection PyProtectedMember
-            cls._func_wrapper(clazz, clazz_._create, is_class_method=False, is_instance_method=False,
-                              is_constructor=True,
-                              expire_on_exit=False, method=RestMethod.GET, content_type="text/plain")
+            self._func_wrapper(clazz, clazz_._create, is_class_method=False, is_instance_method=False,
+                               is_constructor=True,
+                               expire_on_exit=False, method=RestMethod.GET, content_type="text/plain")
 
-            async def _expire(self, new_lease_time: int = cls.ObjectRepo.DEFAULT_OBJECT_EXPIRATION,
+            async def _expire(this, new_lease_time: int = self.ObjectRepo.DEFAULT_OBJECT_EXPIRATION,
                               _uuid: Optional[str] = None) -> None:
                 """
                 Release/close an instance on the server that was created through invocation of _create for the
                 associated resource
                 """
-                self_id = cls.ObjectRepo.by_instance.get(self)
-                if self_id not in cls.ObjectRepo.instances:
+                self_id = self.ObjectRepo.by_instance.get(this)
+                if self_id not in self.ObjectRepo.instances:
                     raise HTTPException(code=404, msg=f"No such object with id {self_id}")
-                cls.ObjectRepo.expiry[self_id].cancel()
-                if cls.ObjectRepo.instances and new_lease_time <= 0:
-                    await cls.ObjectRepo.expire_obj(self_id, 0)
+                self.ObjectRepo.expiry[self_id].cancel()
+                if self.ObjectRepo.instances and new_lease_time <= 0:
+                    await self.ObjectRepo.expire_obj(self_id, 0)
                 else:
-                    cls.ObjectRepo.expiry[self_id] = asyncio.create_task(
-                        cls.ObjectRepo.expire_obj(self_id, new_lease_time))
+                    self.ObjectRepo.expiry[self_id] = asyncio.create_task(
+                        self.ObjectRepo.expire_obj(self_id, new_lease_time))
 
             clazz_._expire = _expire
             clazz_._expire.__doc__ = _expire.__doc__
@@ -523,41 +517,41 @@ class WebApplication:
             clazz_._expire.__qualname__ = f"{clazz_.__name__}.expire"
 
             # noinspection PyProtectedMember
-            cls._func_wrapper(clazz, clazz_._expire, is_class_method=False, is_instance_method=True,
+            self._func_wrapper(clazz, clazz_._expire, is_class_method=False, is_instance_method=True,
                               expire_on_exit=False,
                               is_constructor=False, method=RestMethod.GET, content_type="text/plain")
 
-        for clazz in [cls for _, cls in inspect.getmembers(mod) if inspect.isclass(cls)]:
+        for clazz in [cl for _, cl in inspect.getmembers(mod) if inspect.isclass(cl)]:
             # noinspection PyProtectedMember
             method_found = any([item for item in inspect.getmembers(clazz) if item[1] == api._func])
             if method_found:
                 api._clazz = clazz
-            if method_found and (api in cls._instance_methods or api.is_constructor):
-                if clazz not in cls._class_instance_methods or not cls._class_instance_methods.get(clazz):
+            if method_found and (api in self._instance_methods or api.is_constructor):
+                if clazz not in self._class_instance_methods or not self._class_instance_methods.get(clazz):
                     process_class(clazz)
-                cls._class_instance_methods.setdefault(clazz, []).append(api)
-                cls._instance_methods_class_map[api] = clazz
+                self._class_instance_methods.setdefault(clazz, []).append(api)
+                self._instance_methods_class_map[api] = clazz
                 if api.is_constructor:
                     if api._func.__annotations__.get('return') != clazz.__name__:
                         raise TypeError("@web_api's declared as constructors must return that class's type")
 
                 if api.expire_object:
-                    async def wrapped(self, *args, **kargs):
+                    async def wrapped(this, *args, **kargs):
                         try:
                             # noinspection PyProtectedMember
-                            return await api._func(self, *args, **kargs)
+                            return await api._func(this, *args, **kargs)
                         finally:
-                            if self in cls.ObjectRepo.by_instance:
-                                uuid = cls.ObjectRepo.by_instance[self]
-                                del cls.ObjectRepo.by_instance[self]
-                                del cls.ObjectRepo.instances[uuid]
+                            if this in self.ObjectRepo.by_instance:
+                                uuid = self.ObjectRepo.by_instance[this]
+                                del self.ObjectRepo.by_instance[this]
+                                del self.ObjectRepo.instances[uuid]
 
                     setattr(clazz, api.name, wrapped)
-            elif method_found and api in cls._all_methods:
+            elif method_found and api in self._all_apis:
                 if api.is_constructor:
                     if api._func.__annotations__.get('return') != clazz.__name__:
                         raise TypeError("@web_api's declared as constructors must return that class's type")
-                cls._class_instance_methods.setdefault(clazz, [])  # create an empty list of instance methods at least
+                self._class_instance_methods.setdefault(clazz, [])  # create an empty list of instance methods at least
 
     @classmethod
     def _func_wrapper(cls, clazz, func: WebApi,
@@ -582,6 +576,8 @@ class WebApplication:
                   is_class_method=is_class_method,
                   is_constructor=is_constructor, expire_on_exit=expire_on_exit, uuid_param=uuid_param, timeout=timeout)
         func._bantam_web_api = api
+        if hasattr(func, '__func__'):
+            func.__func__._bantam_web_api = api
         if is_instance_method:
             if not inspect.iscoroutinefunction(func) and not inspect.isasyncgenfunction(func):
                 raise ValueError("the @web_api decorator can only be applied to classes with public "

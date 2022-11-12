@@ -72,12 +72,17 @@ def normalize_from_json(json_data, typ) -> Any:
     elif getattr(typ, '_name', None) in ('List', ):
         elem_typ = typ.__args__[0]
         return [normalize_from_json(value, elem_typ) for value in json_data]
+    elif getattr(typ, '_name', None) in ('Set', ):
+        elem_typ = typ.__args__[0]
+        return {normalize_from_json(value, elem_typ) for value in json_data}
+    elif getattr(typ, '_name', None) in ('Tuple', ):
+        elem_typ = typ.__args__[0]
+        return tuple(normalize_from_json(value, elem_typ) for value in json_data)
     elif hasattr(typ, '__dataclass_fields__'):
         return typ(**{
             name: normalize_from_json(json_data[name], field.type)
             for name, field in typ.__dataclass_fields__.items()
         })
-        return typ(**json_data)
     else:
         raise TypeError(f"Unsupported typ for web api: '{typ}'")
 
@@ -90,13 +95,18 @@ def to_str(val: Any) -> Optional[str]:
         return json.dumps(val)
     elif isinstance(val, Enum):
         return val.value
-    elif type(val) in (str, int, float, bool):
-        return val
+    elif type(val) == bool:
+        return str(val).lower()
+    elif type(val) in (str, int, float):
+        return str(val)
     elif type(val) in [dict] or (getattr(type(val), '_name', None) in ('Dict', 'Mapping')):
         val = normalize_to_json_compat(val)
         return json.dumps(val)
     elif type(val) in [list] or (getattr(type(val), '_name', None) in ('List', )):
         val = normalize_to_json_compat(val)
+        return json.dumps(val)
+    elif type(val) in [set, tuple] or (getattr(type(val), '_name', None)) in ('Set', 'Tuple', ):
+        val = normalize_to_json_compat(list(val))
         return json.dumps(val)
     raise TypeError(f"Type of value, '{type(val)}' is not supported in web api")
 
@@ -122,7 +132,9 @@ def from_str(image: str, typ: Type) -> Any:
         return typ(image)
     elif typ == bool:
         return image.lower() == 'true'
-    elif typ in (dict, list) or (getattr(typ, '_name', None) in ('Dict', 'List', 'Mapping')):
+    elif getattr(typ, '_name', None) in ('Dict', 'List', 'Mapping'):
+        return normalize_from_json(json.loads(image), typ)
+    elif getattr(typ, '_name', None) in ('Set', 'Tuple'):
         return normalize_from_json(json.loads(image), typ)
     elif hasattr(typ, '__dataclass_fields__'):
         return normalize_from_json(json.loads(image), typ)
