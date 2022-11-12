@@ -15,14 +15,17 @@ class RestMethod(Enum):
 class API:
 
     def __init__(self, clazz, func, method: RestMethod, content_type: str, is_instance_method: bool,
+                 is_class_method: bool,
                  is_constructor: bool,
                  timeout: Optional[ClientTimeout] = None,
                  expire_on_exit: bool = False, uuid_param: Optional[str] = None):
-        annotations = func.__annotations__
+        annotations = func.__annotations__ if not is_class_method else func.__func__.__annotations__
         self._clazz = clazz
+        self._is_class_method = is_class_method
         self._is_instance_method = is_instance_method
         self._expire_obj = expire_on_exit
         self._func = func
+        self._real_func = func if not is_class_method else func.__func__
         self._method = method
         self._timeout = timeout or ClientTimeout()
         if 'return' not in annotations:
@@ -58,15 +61,19 @@ class API:
 
     @property
     def name(self) -> str:
-        return self._func.__name__
+        return self._real_func.__name__
 
     @property
     def qualname(self) -> str:
-        return self._func.__qualname__
+        return self._real_func.__qualname__
 
     @property
     def expire_object(self) -> bool:
         return self._expire_obj
+
+    @property
+    def is_class_method(self):
+        return self._is_class_method
 
     @property
     def is_constructor(self) -> bool:
@@ -78,11 +85,11 @@ class API:
 
     @property
     def module(self) -> str:
-        return self._func.__module__
+        return self._real_func.__module__
 
     @property
     def doc(self) -> str:
-        return self._func.__doc__
+        return self._real_func.__doc__
 
     @property
     def method(self):

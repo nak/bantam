@@ -8,6 +8,7 @@ from abc import abstractmethod
 from bantam.api import RestMethod
 from bantam.client import WebInterface
 from bantam.decorators import web_api
+from bantam.http import WebApplication
 
 
 class MockWebClientInterface(WebInterface):
@@ -27,18 +28,17 @@ class MockWebClientInterface(WebInterface):
 
 
     @web_api(method=RestMethod.GET, content_type='application/json')
-    @staticmethod
-    @abstractmethod
-    async def static_method() -> Dict[str, str]:
+    @classmethod
+    async def static_method(cls) -> Dict[str, str]:
         raise NotImplementedError()
 
-    @web_api(method=RestMethod.GET, is_constructor=True, content_type='json')
+    @web_api(method=RestMethod.GET, content_type='json')
     @staticmethod
     @abstractmethod
     async def static_method_streamed(val1: int, val2: float) -> AsyncIterator[str]:
         raise NotImplementedError()
 
-    @web_api(method=RestMethod.GET, content_type='application/json')
+    @web_api(method=RestMethod.POST, content_type='application/json')
     @abstractmethod
     async def instance_method(self, val: str) -> str:
         raise NotImplementedError()
@@ -75,6 +75,9 @@ class TestWebClient:
             elif TestWebClient._get_count == 4:
                 return b'PONG'
 
+        def raise_for_status(self, *args, **kwargs):
+            pass
+
     _get_count = 0
     _suffix = ""
 
@@ -90,13 +93,14 @@ class TestWebClient:
             assert url == urls[TestWebClient._get_count]
         else:
             assert url.startswith(urls[TestWebClient._get_count][0])
-            assert url.endswith(urls[TestWebClient._get_count][1])
+            assert kwargs['data'] == json.dumps({'val': 'PING'})
         TestWebClient._get_count += 1
         return TestWebClient.MockContent()
 
 
     @pytest.mark.asyncio
     @patch(target='aiohttp.ClientSession.get', new=mock_get)
+    @patch(target='aiohttp.ClientSession.post', new=mock_get)
     async def test_client(self):
         Client = MockWebClientInterface.Client()
         MyClient: MockWebClientInterface = Client['http://someendpoint/']

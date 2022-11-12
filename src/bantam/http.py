@@ -14,6 +14,7 @@ Let's look at setting up a simple WebApplication on your localhost:
 >>> import asyncio
 ... from bantam.http import web_api, RestMethod, WebApplication
 ...
+... # noinspection PyNestedDecorators
 ... class Greetings:
 ...
 ...     @web_api(content_type='text/html', method=RestMethod.GET)
@@ -92,6 +93,7 @@ import sys
 import traceback
 import types
 
+import logging
 from aiohttp import ClientTimeout
 from aiohttp import web
 from aiohttp.web import (
@@ -128,6 +130,9 @@ from .js_async import JavascriptGeneratorAsync
 from .js import JavascriptGenerator
 
 _all__ = ['WebApplication', web_api, AsyncChunkIterator, AsyncLineIterator, 'AsyncApi', RestMethod]
+
+log = logging.getLogger("bantam")
+log.setLevel(os.environ.get("BANTAM_LOG_LEVEL", "ERROR"))
 
 AsyncApi = Callable[['WebApplication', Request], Awaitable[StreamResponse]]
 PathLike = Union[Path, str]
@@ -183,6 +188,8 @@ class WebApplication:
     routes_post: Dict[str, AsyncApi] = {}
     callables_get: Dict[str, API] = {}
     callables_post: Dict[str, API] = {}
+    module_mapping_get: Dict[str, Dict[str, API]] = {}
+    module_mapping_post: Dict[str, Dict[str, API]] = {}
 
     def __init__(self,
                  *,
@@ -294,7 +301,7 @@ class WebApplication:
         return self._postprocessor
 
     @classmethod
-    def register_route_get(cls, route: str, async_handler: AsyncApi, api: API) -> None:
+    def register_route_get(cls, route: str, async_handler: AsyncApi, api: API, module: str) -> None:
         """
         Register the given handler as a GET call. This should be called from the @web_api decorator, and
         rarely if ever called directly
@@ -302,6 +309,7 @@ class WebApplication:
         :param route: route to register under
         :param async_handler: the raw handler for handling an incoming Request and returning a Response
         :param api: the high-level deocrated web_api that will be invoked by the handler
+        :param module: module that is holding the @web_api
         """
         if route in cls.routes_get or route in cls.routes_post:
             existing = cls.callables_get.get(route) or cls.callables_post.get(route)
@@ -312,9 +320,11 @@ class WebApplication:
                 )
         cls.routes_get[route] = async_handler
         cls.callables_get[route] = api
+        cls.module_mapping_get.setdefault(module, {})[route] = api
 
-    @staticmethod
-    def register_route_post(route: str, async_method: AsyncApi, api: API) -> None:
+    # noinspection PyProtectedMember
+    @classmethod
+    def register_route_post(cls, route: str, async_method: AsyncApi, api: API, module: str) -> None:
         """
         Register the given handler as a POST call.  This should be called from the @web_api decorator, and
         rarely if ever called directly
@@ -322,15 +332,19 @@ class WebApplication:
         :param route: route to register under
         :param async_method: the raw handler for handling an incoming Request and returning a Response
         :param api: web api (decorated as @web_api) instance
+        :param module: module that is holding the @web_api
         """
-        if route in WebApplication.routes_post or route in WebApplication.routes_get:
-            existing = WebApplication.callables_get.get(route) or WebApplication.callables_post.get(route)
-            raise WebApplication.DuplicateRoute(f"Route '{route}' associated with {api.module}.{api._func.__name__}"
-                                                f" already exists here {existing.module}.{existing.name} ")
-        WebApplication.routes_post[route] = async_method
-        WebApplication.callables_post[route] = api
+        if route in cls.routes_post or route in cls.routes_get:
+            existing = cls.callables_get.get(route) or WebApplication.callables_post.get(route)
+            raise cls.DuplicateRoute(f"Route '{route}' associated with {api.module}.{api._func.__name__}"
+                                     f" already exists here {existing.module}.{existing.name} ")
+        cls.routes_post[route] = async_method
+        cls.callables_post[route] = api
+        cls.module_mapping_post.setdefault(module, {})[route] = api
 
+    # noinspection PyProtectedMember
     async def start(self,
+                    modules: List[str] = None,
                     host: Optional[str] = None,
                     port: Optional[int] = None,
                     path: Optional[str] = None,
@@ -343,6 +357,7 @@ class WebApplication:
         """
         start the app
 
+        :param modules: list of name of modules to import that contain the @web_api definitions to use
         :param host: host of app, if TCP based
         :param port: port to handle requests on (to listen on) if TCP based
         :param path: path, if using UNIX domain sockets to listen on (cannot specify both TCP and domain parameters)
@@ -356,20 +371,52 @@ class WebApplication:
             endpoints are bound to, so long as they all set this flag when being created. This option is not supported
             on Windows.
         """
+        # noinspection PyProtectedMember
         from aiohttp.web import _run_app as web_run_app
-        for api in self._all_methods:
-            if api.name in ['_expire']:
-                continue
-            mod = importlib.import_module(api.module)
-            self._process_module_classes(mod, api)
+        if modules:
+            for module in modules:
+                # ensures web api's are loaded:
+                mod = importlib.import_module(module)
+                for api in self.module_mapping_get.get(module, {}).values():
+                    if api.name in ['_expire']:
+                        continue
+                    if api.is_class_method:
+                        class_name, method_name = api._real_func.__qualname__.split('.')
+                        api._func = getattr(getattr(mod, class_name), method_name)
+                    self._process_module_classes(mod, api)
+                for api in self.module_mapping_post.get(module, {}).values():
+                    if api.name in ['_expire']:
+                        continue
+                    if api.is_class_method:
+                        class_name, method_name = api._real_func.__qualname__.split('.')
+                        api._func = getattr(getattr(mod, class_name), method_name)
+                    self._process_module_classes(mod, api)
+            allowed_get_routes = {}
+            for module in [m for m in modules if m in self.module_mapping_get]:
+                allowed_get_routes.update(self.module_mapping_get[module])
+            for route, api_get in allowed_get_routes.items():
+                log.debug(f">>>>>>>>>> GET ROUTE {route}")
+                self._web_app.router.add_get(route, wrap(self, api_get))
+            allowed_post_routes = {}
+            for module in [m for m in modules if m in self.module_mapping_post]:
+                allowed_post_routes.update(self.module_mapping_post[module])
+            for route, api_post in allowed_post_routes.items():
+                log.debug(f">>>>>>>>>> POST ROUTE {route}")
+                self._web_app.router.add_post(route, wrap(self, api_post))
+        else:
+            # TODO : to be remove on next major version release, and make modules explicitly required
+            for api in self._all_methods:
+                if api.name in ['_expire']:
+                    continue
+                mod = importlib.import_module(api.module)
+                self._process_module_classes(mod, api)
+            for route, api_get in self.routes_get.items():
+                log.error(f">>>>>>>>>> ROUTE {route}")
+                self._web_app.router.add_get(route, wrap(self, api_get))
 
-        for route, api_get in self.routes_get.items():
-            import logging
-            log = logging.getLogger("LOG")
-            log.error(f">>>>>>>>>> ROUTE {route}")
-            self._web_app.router.add_get(route, wrap(self, api_get))
-        for route, api_post in self.routes_post.items():
-            self._web_app.router.add_post(route, wrap(self, api_post))
+            for route, api_post in self.routes_post.items():
+                log.debug(f">>>>>>>>>> POST ROUTE {route}")
+                self._web_app.router.add_post(route, wrap(self, api_post))
 
         if self._js_bundle_name:
             if self._static_path is None:
@@ -413,8 +460,10 @@ class WebApplication:
             return None
         return WebApplication._context[frame].headers
 
+    # noinspection PyProtectedMember
     @classmethod
     def _process_module_classes(cls, mod: types.ModuleType, api: API):
+        # noinspection PyProtectedMember
         def process_class(clazz_: Type):
             if hasattr(clazz_, '_expire') or hasattr(clazz_, '_create'):
                 raise TypeError("Classes with @web_api applied cannot have methods named _expire nor _create")
@@ -422,7 +471,6 @@ class WebApplication:
             # noinspection PyDecorator
             @staticmethod
             async def _create(*args, **kargs) -> str:
-                self_id = None
                 if '__uuid' in kargs or (api.uuid_param is not None and api.uuid_param in kargs):
                     self_id = kargs[api.uuid_param] if api.uuuid_param is not None else kargs['__uuid']
                     del kargs['__uuid']
@@ -449,7 +497,8 @@ class WebApplication:
                 """
             clazz_._create.__qualname__ = f"{clazz_.__name__}._create"
             # noinspection PyProtectedMember
-            cls._func_wrapper(clazz, clazz_._create, is_instance_method=False, is_constructor=True,
+            cls._func_wrapper(clazz, clazz_._create, is_class_method=False, is_instance_method=False,
+                              is_constructor=True,
                               expire_on_exit=False, method=RestMethod.GET, content_type="text/plain")
 
             async def _expire(self, new_lease_time: int = cls.ObjectRepo.DEFAULT_OBJECT_EXPIRATION,
@@ -474,7 +523,8 @@ class WebApplication:
             clazz_._expire.__qualname__ = f"{clazz_.__name__}.expire"
 
             # noinspection PyProtectedMember
-            cls._func_wrapper(clazz, clazz_._expire, is_instance_method=True, expire_on_exit=False,
+            cls._func_wrapper(clazz, clazz_._expire, is_class_method=False, is_instance_method=True,
+                              expire_on_exit=False,
                               is_constructor=False, method=RestMethod.GET, content_type="text/plain")
 
         for clazz in [cls for _, cls in inspect.getmembers(mod) if inspect.isclass(cls)]:
@@ -494,6 +544,7 @@ class WebApplication:
                 if api.expire_object:
                     async def wrapped(self, *args, **kargs):
                         try:
+                            # noinspection PyProtectedMember
                             return await api._func(self, *args, **kargs)
                         finally:
                             if self in cls.ObjectRepo.by_instance:
@@ -509,7 +560,9 @@ class WebApplication:
                 cls._class_instance_methods.setdefault(clazz, [])  # create an empty list of instance methods at least
 
     @classmethod
-    def _func_wrapper(cls, clazz, func: WebApi, is_instance_method: bool,
+    def _func_wrapper(cls, clazz, func: WebApi,
+                      is_instance_method: bool,
+                      is_class_method: bool,
                       is_constructor: bool,
                       expire_on_exit: bool,
                       method: RestMethod,
@@ -526,6 +579,7 @@ class WebApplication:
         :return: function back, having processed as a web api and registered the route
         """
         api = API(clazz, func, method=method, content_type=content_type, is_instance_method=is_instance_method,
+                  is_class_method=is_class_method,
                   is_constructor=is_constructor, expire_on_exit=expire_on_exit, uuid_param=uuid_param, timeout=timeout)
         func._bantam_web_api = api
         if is_instance_method:
@@ -533,8 +587,11 @@ class WebApplication:
                 raise ValueError("the @web_api decorator can only be applied to classes with public "
                                  f"methods that are coroutines (async); see {api.qualname}")
             cls._instance_methods.append(api)
-        else:
+        elif not is_class_method:
             if not inspect.iscoroutinefunction(func) and not inspect.isasyncgenfunction(func):
+                raise ValueError("the @web_api decorator can only be applied to methods that are coroutines (async)")
+        else:
+            if not inspect.iscoroutinefunction(func.__func__) and not inspect.isasyncgenfunction(func.__func__):
                 raise ValueError("the @web_api decorator can only be applied to methods that are coroutines (async)")
         cls._all_methods.append(api)
         name = api.qualname.replace('__init__', 'create').replace('._expire', '.expire')
@@ -572,9 +629,11 @@ class WebApplication:
 
         invoke.clazz = WebApplication._instance_methods_class_map.get(api) if is_instance_method else None
         if method == RestMethod.GET:
-            WebApplication.register_route_get(route, invoke, api)
+            # noinspection PyProtectedMember
+            WebApplication.register_route_get(route, invoke, api, api._real_func.__module__)
         elif method == RestMethod.POST:
-            WebApplication.register_route_post(route, invoke, api)
+            # noinspection PyProtectedMember
+            WebApplication.register_route_post(route, invoke, api, api._real_func.__module__)
         else:
             raise ValueError(f"Unknown method {method} in @web-api")
         return func
@@ -624,6 +683,8 @@ class WebApplication:
                     raise ValueError(f"No instance found for request with 'self' id of {self_id}")
                 del kwargs['self']
                 result = api(instance, **kwargs)
+            elif api.is_class_method:
+                result = api(api.__self__, *kwargs)
             else:
                 # call the underlying function:
                 result = api(**kwargs)
@@ -659,10 +720,10 @@ class WebApplication:
                     if api.clazz and hasattr(api.clazz, '__aenter__'):
                         await instance.__aenter__()
                     if hasattr(api.clazz, 'jsonrepr'):
-                        repr = api.clazz.jsonrepr(result)
-                        uuid = repr.get(api.uuid_param)
+                        repr_ = api.clazz.jsonrepr(result)
+                        uuid = repr_.get(api.uuid_param)
                         content_type = 'application/json'
-                        result = json.dumps(repr)
+                        result = json.dumps(repr_)
                     else:
                         uuid = kwargs[api.uuid_param]
                         result = uuid
@@ -736,6 +797,7 @@ class WebApplication:
                     kwargs = {key: line_by_line_response(request)}
                 elif typ == AsyncChunkIterator:
                     kwargs = {key: streamed_bytes_arg_value(request)}
+                # noinspection PyTypeChecker
                 kwargs.update({k: _convert_request_param(v, api.synchronous_arg_annotations[k]) if k != 'self' else v
                                for k, v in request.query.items() if k in api.synchronous_arg_annotations})
             else:
@@ -766,6 +828,8 @@ class WebApplication:
                 awaitable = api(instance, **kwargs)
                 if api.expire_object:
                     del cls.ObjectRepo.instances[self_id]
+            elif api.is_class_method:
+                awaitable = api(api.__self__, **kwargs)
             else:
                 awaitable = api(**kwargs)
             if inspect.isasyncgen(awaitable):

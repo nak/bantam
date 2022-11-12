@@ -54,15 +54,17 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
 
     def wrapper(obj: Union[WebApi, staticmethod]):
         is_static = isinstance(obj, staticmethod)
+        is_classmethod = isinstance(obj, classmethod)
         if not is_static and is_constructor:
             raise TypeError("@web_api's that are declared constructors must be static methods")
         if is_static and expire_obj:
             raise TypeError("@web_api's expire_obj param can only be set True for instance methods")
         if is_static:
             obj = obj.__func__
-        if not inspect.ismethod(obj) and not inspect.isfunction(obj):
-            raise TypeError("@web_api should only be applied to class methods")
-        if obj.__name__.startswith('_'):
+        if not is_static and not is_classmethod and not inspect.ismethod(obj) and not inspect.isfunction(obj):
+            raise TypeError("@web_api should only be applied to @classmethod's, @staticmethods or instance methods")
+        if (not is_classmethod and obj.__name__.startswith('_'))\
+            or (is_classmethod and obj.__func__.__name__.startswith('_')):
             raise TypeError("names of web_api methods must not start with underscore")
         # noinspection PyProtectedMember
         # clazz = WebApplication._instance_methods_class_map[obj] if not isinstance(obj, staticmethod) else None
@@ -70,7 +72,8 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
         return WebApplication._func_wrapper(None,
                                             obj,
                                             timeout=timeout,
-                                            is_instance_method=not is_static,
+                                            is_instance_method=not is_static and not is_classmethod,
+                                            is_class_method=is_classmethod,
                                             method=method,
                                             content_type=content_type,
                                             is_constructor=is_constructor,
