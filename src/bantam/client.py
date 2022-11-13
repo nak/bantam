@@ -80,7 +80,7 @@ class WebInterface(ABC):
                             nonlocal api
                             arg_spec = inspect.getfullargspec(api._func)
                             kwargs_.update({
-                                arg_spec.args[n]: arg for n, arg in enumerate(args)
+                                arg_spec.args[n+1]: arg for n, arg in enumerate(args)
                             })
                             rest_method = api.method
                             while cls.end_point.endswith('/'):
@@ -104,7 +104,7 @@ class WebInterface(ABC):
                             nonlocal api
                             arg_spec = inspect.getfullargspec(api._func)
                             kwargs_.update({
-                                arg_spec.args[n]: arg for n, arg in enumerate(args)
+                                arg_spec.args[n+1]: arg for n, arg in enumerate(args)
                             })
                             method_api = api.method
                             rest_method = method_api._bantam_web_api.method
@@ -253,7 +253,7 @@ class WebInterface(ABC):
                             except Exception:
                                 arg_spec = inspect.getfullargspec(api._func.__func__)
                             kwargs_.update({
-                                arg_spec.args[n]: arg for n, arg in enumerate(args)
+                                arg_spec.args[n+1]: arg for n, arg in enumerate(args)
                             })
                             # noinspection PyBroadException
                             rest_method = api._func._bantam_web_api.method
@@ -288,11 +288,14 @@ class WebInterface(ABC):
 
                         # noinspection PyDecorator
                         @classmethod
-                        async def class_method_streamed(*args, **kwargs_):
+                        async def class_method_streamed(cld, *args, **kwargs_):
                             nonlocal api
-                            arg_spec = inspect.getfullargspec(api._func)
+                            try:
+                                arg_spec = inspect.getfullargspec(api._func)
+                            except Exception:
+                                arg_spec = inspect.getfullargspec(api._func.__func__)
                             kwargs_.update({
-                                arg_spec.args[n]: arg for n, arg in enumerate(args)
+                                arg_spec.args[n+1]: arg for n, arg in enumerate(args)
                             })
                             rest_method = api._func._bantam_web_api.method
                             while cls.end_point.endswith('/'):

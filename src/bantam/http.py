@@ -383,7 +383,7 @@ class WebApplication:
 
             # noinspection PyDecorator
             @staticmethod
-            async def _create(*args, **kargs) -> str:
+            async def _create(*args, **kargs) -> clazz_:
                 if kargs.get('__uuid') or (api.uuid_param is not None and api.uuid_param in kargs):
                     self_id = kargs[api.uuid_param] if api.uuuid_param is not None else kargs['__uuid']
                     del kargs['__uuid']
@@ -402,7 +402,6 @@ class WebApplication:
                 clazz_._create.__annotations__ = clazz_.__init__.__annotations__ if hasattr(clazz_, '__init__') else {}
             else:
                 clazz._create.__annotations__ = {}
-            clazz_._create.__annotations__['return'] = str
 
             clazz_._create.__doc__ = clazz_.__init__.__doc__ if hasattr(clazz_, '__init__') else f"""
                 Create an instance of {clazz_.__name__} on server, returning a unique string id for the instance.
@@ -412,7 +411,9 @@ class WebApplication:
                 :return: unique string id of instance created
                 """
             clazz_._create.__qualname__ = f"{clazz_.__name__}._create"
+            clazz_._create.__annotations__['return'] = clazz_
             _create.__func__.__annotations__ = clazz_._create.__annotations__
+            _create.__annotations__ = clazz_._create.__annotations__
             # noinspection PyProtectedMember
             route_name = f"/{clazz_.__name__}/_create"
             api = API(
@@ -468,7 +469,7 @@ class WebApplication:
                 self._class_instance_methods.setdefault(clazz, []).append(api)
                 self._instance_methods_class_map[api] = clazz
                 if api.is_constructor:
-                    if api._func.__annotations__.get('return') != clazz.__name__:
+                    if api._func.__annotations__.get('return') not in (clazz, clazz.__name__):
                         raise TypeError("@web_api's declared as constructors must return that class's type")
 
                 if api.expire_object:
@@ -485,7 +486,7 @@ class WebApplication:
                     setattr(clazz, api.name, wrapped)
             elif method_found and api in self._all_apis:
                 if api.is_constructor:
-                    if api._func.__annotations__.get('return') != clazz.__name__:
+                    if api._func.__annotations__.get('return') not in (clazz, clazz.__name__):
                         raise TypeError("@web_api's declared as constructors must return that class's type")
                 self._class_instance_methods.setdefault(clazz, [])  # create an empty list of instance methods at least
 

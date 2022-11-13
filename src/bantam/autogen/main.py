@@ -59,6 +59,8 @@ class {class_name}Interface(WebInterface):
                 f"method={api.method}, content_type='{api.content_type}', is_constructor={api.is_constructor},"\
                 f" uuid_param={api.uuid_param}"
             return_type = f"{_qual_name(api.return_type)}"
+            if api.has_streamed_response:
+                return_type = f"typing.AsyncIterator[{return_type}]"
             if api.is_static:
                 addl_decorator = "@staticmethod\n    "
             elif api.is_class_method:
@@ -81,7 +83,7 @@ class {class_name}Interface(WebInterface):
         sys.stdout.write(method_text)
         sys.stdout.write(f"""
         
-{class_name}{class_suffix} = {class_name}Interface.Client
+{class_name}{class_suffix} = {class_name}Interface.Client()
 """)
         sys.stdout.write('\n')
     return 0
