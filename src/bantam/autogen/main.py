@@ -5,6 +5,8 @@ from bantam.http import WebApplication
 
 
 def _qual_name(typ):
+    if type is None:
+        return None
     if hasattr(typ, '__qualname__'):
         return (typ.__module__ + '.' if typ.__module__ != 'builtins' else '') + typ.__qualname__
     return str(typ)
@@ -49,7 +51,9 @@ class {class_name}Interface(WebInterface):
             args = api.arg_annotations
             arg_text = ', '.join(f"{arg_name}: {_qual_name(typ)}" for arg_name, typ in args.items())
             for typ in list(args.values()) + [api.return_type]:
-                if typ.__module__ != 'builtins':
+                if typ is None:
+                    continue
+                elif typ.__module__ != 'builtins':
                     imports.add(f"import {typ.__module__}")
             web_api_args = \
                 f"method={api.method}, content_type='{api.content_type}', is_constructor={api.is_constructor},"\
