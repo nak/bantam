@@ -117,7 +117,7 @@ class bantam {
 
     static async *fetch_GET_streamed(route, content_type, param_map, convert, return_is_bytes){
         let result = await fetch(route + bantam.compute_query(param_map),
-                                 {method:'GET', headers: {'Content-Type': content_type}});
+                                 {method:'GET', duplex: 'half', headers: {'Content-Type': content_type}});
         let reader = await result.body.getReader();
         while (true){
             if (result.status < 200 || result.status > 299){
@@ -195,7 +195,7 @@ class bantam {
             });
             try{
                 body = await fetch(route + bantam.compute_query(param_map), {method:'POST',
-                                   headers: {'Content-Type': content_type},
+                                   duplex: 'half', headers: {'Content-Type': content_type},
                                    body: requestBody});
             } catch (error) {
                 if (error.message === 'Failed to fetch'){
@@ -205,7 +205,7 @@ class bantam {
             }
         } else {
             body = await fetch(route, {method:'POST', headers: {'Content-Type': content_type},
-                                       body: JSON.stringify(param_map)});
+                                       duplex: 'half', body: JSON.stringify(param_map)});
         }
         let reader = await body.body.getReader();
         while (true){
@@ -307,7 +307,7 @@ class bantam {
             return self._classes
 
     @classmethod
-    def generate(cls, out: IO, skip_html: bool = True) -> None:
+    def generate(cls, allowed_routes: List[str], out: IO, skip_html: bool = True) -> None:
         """
         Generate javascript code from registered routes
 
@@ -318,10 +318,14 @@ class bantam {
         from .http import WebApplication
         namespaces = cls.Namespace()
         for route, api in WebApplication.callables_get.items():
+            if route not in allowed_routes:
+                continue
             if not skip_html or (api.content_type.lower() != 'text/html'):
                 classname = route[1:].split('/')[0]
                 namespaces.add_class_and_route_get(classname, route, api)
         for route, api in WebApplication.callables_post.items():
+            if route not in allowed_routes:
+                continue
             if not skip_html or (api.content_type.lower() != 'text/html'):
                 classname = route[1:].split('/')[0]
                 namespaces.add_class_and_route_post(classname, route, api)
@@ -347,6 +351,7 @@ class bantam {
                                                   content_type="text/plain",
                                                   is_instance_method=False,
                                                   is_constructor=True,
+                                                  is_class_method=False,
                                                   expire_on_exit=False),
                                           tab=tab)
                     cls._generate_request(out,
@@ -354,6 +359,7 @@ class bantam {
                                           api=API(clazz, clazz._expire, method=RestMethod.GET,
                                                   content_type="text/plain",
                                                   is_instance_method=True,
+                                                  is_class_method=False,
                                                   is_constructor=False,
                                                   expire_on_exit=False),
                                           tab=tab)
@@ -376,10 +382,6 @@ class bantam {
     @classmethod
     def _generate_request(cls, out: IO, route: str, api: API, tab: str):
         offset = 1 if 'self' in api._func.__code__.co_varnames else 0
-        if not api.name.startswith('_') and api._func.__code__.co_argcount - offset != len(api.arg_annotations):
-            raise Exception(
-                f"Not all arguments of '{api.module}.{api.name}' have type hints.  This is required for web_api"
-            )
         docs = APIDoc()
         try:
             api_doc = docs.generate(api=api,

@@ -78,11 +78,11 @@ class WebInterface(ABC):
 
                         async def instance_method(this, *args, **kwargs_):
                             nonlocal api
-                            if args:
-                                raise SystemError(f"web apis should internally only be called with kwargs, but got args"
-                                                  f" {args}")
-                            rest_method = api.method
                             arg_spec = inspect.getfullargspec(api._func)
+                            kwargs_.update({
+                                arg_spec.args[n]: arg for n, arg in enumerate(args)
+                            })
+                            rest_method = api.method
                             missing_args = {arg for arg in arg_spec.args if arg != 'self' and arg not in kwargs_}
                             if missing_args:
                                 raise ValueError(f"No values provided for arguments {', '.join(missing_args)}")
@@ -106,12 +106,12 @@ class WebInterface(ABC):
 
                         async def instance_method_streamed(this, *args, **kwargs_):
                             nonlocal api
-                            if args:
-                                raise SystemError(f"web apis should internally only be called with kwargs, but got args"
-                                                  f" {args}")
+                            arg_spec = inspect.getfullargspec(api._func)
+                            kwargs_.update({
+                                arg_spec.args[n]: arg for n, arg in enumerate(args)
+                            })
                             method_api = api.method
                             rest_method = method_api._bantam_web_api.method
-                            arg_spec = inspect.getfullargspec(api._func)
                             missing_args = {arg for arg in arg_spec.args if arg != 'self' and arg not in kwargs_}
                             if missing_args:
                                 raise ValueError(f"No values provided for arguments {', '.join(missing_args)}")
@@ -167,9 +167,10 @@ class WebInterface(ABC):
                         @staticmethod
                         async def static_method(*args, **kwargs_):
                             nonlocal api
-                            if args:
-                                raise SystemError(f"web apis should only be called with kwargs, but gut args: {args}")
                             arg_spec = inspect.getfullargspec(api._func)
+                            kwargs_.update({
+                                arg_spec.args[n]: arg for n, arg in enumerate(args)
+                            })
                             missing_args = {arg for arg in arg_spec.args if arg != 'cls' and arg not in kwargs_}
                             if missing_args:
                                 raise ValueError(f"No values provided for arguments {', '.join(missing_args)}")
@@ -207,10 +208,11 @@ class WebInterface(ABC):
                         @staticmethod
                         async def static_method_streamed(*args, **kwargs_):
                             nonlocal api
-                            if args:
-                                raise SystemError(f"web apis should only be called with kwargs, but gut args: {args}")
-                            rest_method = api._func._bantam_web_api.method
                             arg_spec = inspect.getfullargspec(api._func)
+                            kwargs_.update({
+                                arg_spec.args[n]: arg for n, arg in enumerate(args)
+                            })
+                            rest_method = api._func._bantam_web_api.method
                             missing_args = {arg for arg in arg_spec.args if arg != 'cls' and arg not in kwargs_}
                             if missing_args:
                                 raise ValueError(f"No values provided for arguments {', '.join(missing_args)}")
@@ -258,14 +260,14 @@ class WebInterface(ABC):
                         @classmethod
                         async def class_method(cls, *args, **kwargs_):
                             nonlocal api
-                            if args:
-                                raise SystemError(f"web apis should internally only be called with kwargs, but got args"
-                                                  f" {args}")
-                            # noinspection PyBroadException
                             try:
                                 arg_spec = inspect.getfullargspec(api._func)
                             except Exception:
                                 arg_spec = inspect.getfullargspec(api._func.__func__)
+                            kwargs_.update({
+                                arg_spec.args[n]: arg for n, arg in enumerate(args)
+                            })
+                            # noinspection PyBroadException
                             missing_args = {arg for arg in arg_spec.args if arg != 'cls' and arg not in kwargs_}
                             if missing_args:
                                 raise ValueError(f"No values provided for arguments {', '.join(missing_args)}")
@@ -303,11 +305,11 @@ class WebInterface(ABC):
                         @classmethod
                         async def class_method_streamed(*args, **kwargs_):
                             nonlocal api
-                            if args:
-                                raise SystemError(f"web apis should internally only be called with kwargs, but got args"
-                                                  f" {args}")
-                            rest_method = api._func._bantam_web_api.method
                             arg_spec = inspect.getfullargspec(api._func)
+                            kwargs_.update({
+                                arg_spec.args[n]: arg for n, arg in enumerate(args)
+                            })
+                            rest_method = api._func._bantam_web_api.method
                             missing_args = {arg for arg in arg_spec.args if arg != 'cls' and arg not in kwargs_}
                             if missing_args:
                                 raise ValueError(f"No values provided for arguments {', '.join(missing_args)}")

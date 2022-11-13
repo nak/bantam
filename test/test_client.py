@@ -8,6 +8,7 @@ from abc import abstractmethod
 from bantam.api import RestMethod
 from bantam.client import WebInterface
 from bantam.decorators import web_api
+from bantam.http import WebApplication
 
 
 class MockWebClientInterface(WebInterface):

@@ -62,7 +62,7 @@ def normalize_from_json(json_data, typ) -> Any:
     elif typ in (int, float):
         return json_data
     elif typ == bool:
-        return json_data.lower() == 'true'
+        return str(json_data).lower() == 'true'
     elif getattr(typ, '_name', None) in ('Dict', 'Mapping'):
         key_typ, elem_typ = typ.__args__
         return {

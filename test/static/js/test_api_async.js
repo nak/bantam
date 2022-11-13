@@ -17,7 +17,7 @@ class TestRunner{
           return new Promise(resolve => setTimeout(resolve, ms));
         }
         async function close(){
-            let api = bantam.test.test_js_async.RestAPIExampleAsync;
+            let api = bantam.example.class_rest_example.RestAPIExampleAsync;
             await sleep(5000);
             if (failed_count > 0){
                alert("There were failed tests");
@@ -70,7 +70,9 @@ class TestRunner{
     }
 
     run(){
-        this.test_suite = [this.test_api_basic, this.test_api_basic_optional_param_value,
+        this.test_suite = [
+            this.test_api_basic,
+            this.test_api_basic_optional_param_value,
             this.test_api_basic_error_not_all_required_params,
             this.test_api_post_basic,
             this.test_api_post_basic_optional_param_value,
@@ -94,7 +96,7 @@ class TestRunner{
 
     async test_api_basic(testname) {
         let self = this;
-        let api = bantam.test.test_js_async.RestAPIExampleAsync;
+        let api = bantam.example.class_rest_example.RestAPIExampleAsync;
         try{
             const text = await api.api_get_basic(1234, true, 9.8765, "text", {'f1': 0.1, 'f2': -345});
             self.onsuccess(testname, text, "Response to test_api_basic 0.1 -345")
@@ -105,7 +107,7 @@ class TestRunner{
 
     async test_api_post_basic_optional_param_value(testname) {
         let self = this;
-        let api = bantam.test.test_js_async.RestAPIExampleAsync;
+        let api = bantam.example.class_rest_example.RestAPIExampleAsync;
         try{
             const text = await api.api_post_basic(
                 1234, true, 9.8765);// no text param provided, but server should then us default
@@ -117,7 +119,7 @@ class TestRunner{
 
      async test_api_basic_error_not_all_required_params(testname) {
         let self = this;
-        let api = bantam.test.test_js_async.RestAPIExampleAsync;
+        let api = bantam.example.class_rest_example.RestAPIExampleAsync;
         try{
             const text = await api.api_get_basic(1234, true);
             self.onerror(testname,-1, "Call succeeded ");
@@ -132,7 +134,7 @@ class TestRunner{
 
     async test_api_get_streamed_response(testname){
         let self = this;
-        let api = bantam.test.test_js_async.RestAPIExampleAsync;
+        let api = bantam.example.class_rest_example.RestAPIExampleAsync;
         let int_vals = [];
         try{
             for await (const int_val of  api.api_get_stream(98, false, 1239929.04, "string value")){
@@ -159,7 +161,7 @@ class TestRunner{
 
     async test_api_get_streamed_response_text(testname){
         let self = this;
-        let api = bantam.test.test_js_async.RestAPIExampleAsync;
+        let api = bantam.example.class_rest_example.RestAPIExampleAsync;
         let count = 0
         let error = false
         let remainder = ''
@@ -187,7 +189,7 @@ class TestRunner{
 
     async test_api_post_basic(testname) {
         let self = this;
-        let api = bantam.test.test_js_async.RestAPIExampleAsync;
+        let api = bantam.example.class_rest_example.RestAPIExampleAsync;
         try{
             const text = await api.api_post_basic(1234, true, 9.8765, "text");
             self.onsuccess(testname, text, "called basic post operation");
@@ -199,7 +201,7 @@ class TestRunner{
 
     async test_api_basic_optional_param_value(testname) {
         let self = this;
-        let api = bantam.test.test_js_async.RestAPIExampleAsync;
+        let api = bantam.example.class_rest_example.RestAPIExampleAsync;
         try{
             const text = await api.api_get_basic(1234, true, 9.8765);// no text param provided, but server should then us default
             self.onsuccess(testname, text, "Response to test_api_basic 1.0 2");
@@ -210,7 +212,7 @@ class TestRunner{
 
     async test_api_post_streamed_response_text(testname){
         let self = this;
-        let api = bantam.test.test_js_async.RestAPIExampleAsync;
+        let api = bantam.example.class_rest_example.RestAPIExampleAsync;
         let count = 0;
         let error = false;
         for await (const text of api.api_post_stream_text(98, false, 1239929.04, "string value")){
@@ -245,7 +247,7 @@ class TestRunner{
 
     async test_api_post_streamed_req_resp(testname){
         let self = this;
-        let api = bantam.test.test_js_async.RestAPIExampleAsync;
+        let api = bantam.example.class_rest_example.RestAPIExampleAsync;
         let count = 0;
         let error = false;
 
@@ -275,9 +277,10 @@ class TestRunner{
 
     async test_api_post_basic_error_not_all_required_params(testname) {
         let self = this;
-        let api = bantam.test.test_js_async.RestAPIExampleAsync;
+        let api = bantam.example.class_rest_example.RestAPIExampleAsync;
         try{
             const text =  await api.api_post_basic(1234, true);
+            alert("HERE3" + testname)
             self.onerror(testname, -1, "Expected exception due to lack of parameters");
         } catch (error){
             self.onsuccess(testname);
@@ -287,13 +290,13 @@ class TestRunner{
 
    async test_api_session_instance(testname) {
         let self = this;
-        let api = new bantam.test.test_js_async.ClassRestExampleAsync(92);
+        let api = new bantam.example.class_rest_example.ClassRestExampleAsync(92);
         const text =  await api.echo(1234, true, -8721.345);
         if (text !== "called basic post operation on instance 92: 1234 True -8721.345 text") {
            self.onerror(testname, -1, "not a match:  '" + text + "' != 'called basic post operation on instance 92: 1234 True -8721.345 text'");
         } else {
             self.onsuccess(testname);
         }
-        await api.expire()
+        // await api.expire()
     }
 }

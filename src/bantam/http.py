@@ -12,6 +12,7 @@ import os
 import sys
 import traceback
 import types
+import uuid as uuid_pkg
 
 import logging
 from aiohttp import ClientTimeout
@@ -52,8 +53,8 @@ from .js import JavascriptGenerator
 _all__ = ['WebApplication', web_api, AsyncChunkIterator, AsyncLineIterator, 'AsyncApi', RestMethod]
 
 log = logging.getLogger("bantam")
-log.setLevel(os.environ.get("BANTAM_LOG_LEVEL", "ERROR"))
-
+if "BANTAM_LOG_LEVEL" in os.environ:
+    log.setLevel(os.environ.get("BANTAM_LOG_LEVEL"))
 AsyncApi = Callable[['WebApplication', Request], Awaitable[StreamResponse]]
 PathLike = Union[Path, str]
 MAX_CLIENTS = 1024 ** 2
@@ -132,7 +133,6 @@ class WebApplication:
         self._preprocessor: Optional[PreProcessor] = None
         self._postprocessor: Optional[PostProcessor] = None
         self._all_apis: List[API] = []
-        self._allowed_get_routes = {}
 
     def _generate_rest_docs(self):
         rst_out = self._static_path.joinpath('_developer_docs.rst')
@@ -235,7 +235,7 @@ class WebApplication:
         """
         if route in cls.routes_get or route in cls.routes_post:
             existing = cls.callables_get.get(route) or cls.callables_post.get(route)
-            if api.module != existing.module or api.name != existing.name:
+            if existing and (api.module != existing.module or api.name != existing.name):
                 raise cls.DuplicateRoute(
                     f"Route '{route}' associated with {api.module}.{api.name}"
                     f" already exists here: {existing.module}.{existing.name} "
@@ -299,7 +299,7 @@ class WebApplication:
         for module in modules:
             # ensures web api's are loaded:
             mod = importlib.import_module(module)
-            for api in self.module_mapping_get.get(module, {}).values():
+            for api in list(self.module_mapping_get.get(module, {}).values()):
                 if api.name in ['_expire']:
                     continue
                 if api.is_class_method:
@@ -318,14 +318,16 @@ class WebApplication:
             allowed_get_routes.update(self.module_mapping_get[module])
         for route, api_get in allowed_get_routes.items():
             log.debug(f">>>>>>>>>> GET ROUTE {route}")
-            self._web_app.router.add_get(route, wrap(self, api_get))
+            invoke = self.routes_get[route]
+            self._web_app.router.add_get(route, wrap(self, invoke))
             self._all_apis.append(api_get)
         allowed_post_routes = {}
         for module in [m for m in modules if m in self.module_mapping_post]:
             allowed_post_routes.update(self.module_mapping_post[module])
         for route, api_post in allowed_post_routes.items():
             log.debug(f">>>>>>>>>> POST ROUTE {route}")
-            self._web_app.router.add_post(route, wrap(self, api_post))
+            invoke = self.routes_post[route]
+            self._web_app.router.add_post(route, wrap(self, invoke))
             self._all_apis.append(api_post)
         if self._js_bundle_name:
             if self._static_path is None:
@@ -336,7 +338,10 @@ class WebApplication:
                 js_path.mkdir(parents=True)
             with open(js_path.joinpath(self._js_bundle_name + ".js"), 'bw') as out:
                 if self._using_async:
-                    JavascriptGeneratorAsync.generate(out=out, skip_html=False)
+                    JavascriptGeneratorAsync.generate(
+                        out=out, skip_html=False,
+                        allowed_routes =list(self.routes_get.keys()) + list(self.routes_post.keys())
+                    )
                 else:
                     JavascriptGenerator.generate(out=out, skip_html=False)
         self._started = True
@@ -379,14 +384,17 @@ class WebApplication:
             # noinspection PyDecorator
             @staticmethod
             async def _create(*args, **kargs) -> str:
-                if '__uuid' in kargs or (api.uuid_param is not None and api.uuid_param in kargs):
+                if kargs.get('__uuid') or (api.uuid_param is not None and api.uuid_param in kargs):
                     self_id = kargs[api.uuid_param] if api.uuuid_param is not None else kargs['__uuid']
                     del kargs['__uuid']
                     if self_id in self.ObjectRepo.instances:
                         raise HTTPException(404, f"UUid {self_id} already in use. uuid's must be unique")
+                else:
+                    self_id = str(uuid_pkg.uuid4())
                 instance = clazz_(*args, **kargs)
                 if hasattr(clazz_, '__aenter__'):
                     await instance.__aenter__()
+                self.ObjectRepo.instances[self_id] = instance
                 return instance
 
             clazz_._create = _create
@@ -401,10 +409,24 @@ class WebApplication:
                 The instance will remain active until /{clazz_.__name__}/expire is invoked.  The sting is used for
                 instance-based ReST methods to act on the created instance on the server.
 
-                :return: unqiue string id of instance created
+                :return: unique string id of instance created
                 """
             clazz_._create.__qualname__ = f"{clazz_.__name__}._create"
+            _create.__func__.__annotations__ = clazz_._create.__annotations__
             # noinspection PyProtectedMember
+            route_name = f"/{clazz_.__name__}/_create"
+            api = API(
+                content_type='text/plain',
+                is_instance_method=False,
+                is_class_method=False,
+                is_constructor=True,
+                method=RestMethod.GET,
+                func=_create.__func__,
+                clazz=clazz_
+            )
+            self.module_mapping_get.setdefault(clazz_.__module__)[route_name] = api
+            self.routes_get[route_name] = clazz._create
+            # self._all_apis[route_name] = api
             self._func_wrapper(clazz, clazz_._create, is_class_method=False, is_instance_method=False,
                                is_constructor=True,
                                expire_on_exit=False, method=RestMethod.GET, content_type="text/plain")
@@ -515,7 +537,8 @@ class WebApplication:
                 try:
                     addl_args = (preprocess(request) or {}) if preprocess else {}
                 except Exception as e:
-                    return Response(status=400, text=f"Error in preprocessing request: {e}")
+                    text = traceback.format_exc()
+                    return Response(status=400, text=f"Error in preprocessing request: {e}\n{text}")
                 if method == RestMethod.GET:
                     # noinspection PyProtectedMember
                     response = await cls._invoke_get_api_wrapper(
@@ -532,10 +555,13 @@ class WebApplication:
                     postprocess = postprocess or app.postprocessor
                     postprocess(response) if postprocess else response
                 except Exception as e:
-                    return Response(status=400, text=f"Error in post-processing of response: {e}")
+                    text = traceback.format_exc()
+                    return Response(status=400, text=f"Error in post-processing of response: {e}\n{text}")
                 return response
             except BaseException as e:
-                return Response(status=500, text=f"Server error: {e}", content_type="test/plain")
+                text = traceback.format_exc()
+                return Response(status=500, reason=f"Server error: {e}",
+                                body=f"Server error: {e}\n{text}", content_type="test/plain")
 
         invoke.clazz = WebApplication._instance_methods_class_map.get(api) if is_instance_method else None
         if method == RestMethod.GET:
@@ -635,8 +661,8 @@ class WebApplication:
                         content_type = 'application/json'
                         result = json.dumps(repr_)
                     else:
-                        uuid = kwargs[api.uuid_param]
-                        result = uuid
+                        uuid = kwargs.get(api.uuid_param, str(uuid_pkg.uuid4()))
+                        result = json.dumps({'uuid': uuid})
                     cls.ObjectRepo.instances[uuid] = instance
                     cls.ObjectRepo.by_instance[instance] = uuid
                     cls.ObjectRepo.expiry[uuid] = asyncio.create_task(cls.ObjectRepo.expire_obj(
@@ -652,7 +678,7 @@ class WebApplication:
         except (asyncio.CancelledError, asyncio.TimeoutError):
             raise
         except Exception as e:
-            return Response(status=500, text=f"{e}: \n{traceback.format_exc()}")
+            return Response(status=500, text=f"Exception: {e}: \n{traceback.format_exc()}")
         finally:
             # noinspection PyUnresolvedReferences,PyProtectedMember
             del cls._context[sys._getframe(0)]
@@ -707,9 +733,13 @@ class WebApplication:
                     kwargs = {key: line_by_line_response(request)}
                 elif typ == AsyncChunkIterator:
                     kwargs = {key: streamed_bytes_arg_value(request)}
+                for k, v in kwargs.items():
+                    assert type(v) == str, f"key {k}={v} is of type {str(type(v))}\n{kwargs}"
+                kwargs = {k: _convert_request_param(v, api.arg_annotations[k]) if k != 'self' else v
+                          for k, v in kwargs.items()}
                 # noinspection PyTypeChecker
-                kwargs.update({k: _convert_request_param(v, api.synchronous_arg_annotations[k]) if k != 'self' else v
-                               for k, v in request.query.items() if k in api.synchronous_arg_annotations})
+                #kwargs.update({k: _convert_request_param(v, api.synchronous_arg_annotations[k]) if k != 'self' else v
+                #               for k, v in request.query.items() if k in api.synchronous_arg_annotations})
             else:
                 # treat payload as json string:
                 bytes_response = await request.read()
@@ -725,15 +755,19 @@ class WebApplication:
             # call the underlying function:
             if addl_args:
                 kwargs.update(addl_args)
-            for k, v in kwargs.items():
-                kwargs[k] = from_str(v, api.arg_annotations[k])
             if api.is_instance_method:
                 self_id = kwargs.get('self')
                 if self_id is None:
                     raise ValueError("No instance provided for call to instance method")
                 instance = cls.ObjectRepo.instances.get(self_id)
                 if instance is None:
-                    raise ValueError(f"No instance id found for request {self_id}")
+                    try:
+                        self_id = json.loads(self_id)['uuid']
+                        instance = cls.ObjectRepo.instances.get(self_id)
+                        if instance is None:
+                            raise Exception()
+                    except:
+                        raise ValueError(f"No instance id found for request {self_id}")
                 del kwargs['self']
                 awaitable = api(instance, **kwargs)
                 if api.expire_object:
@@ -778,7 +812,8 @@ class WebApplication:
         except HTTPException as e:
             return Response(status=e.status_code, text=str(e))
         except Exception as e:
-            return Response(status=500, text=str(e))
+            text = f"Exception: {e}\n {traceback.format_exc()}"
+            return Response(status=500, text=text)
         finally:
             # noinspection PyUnresolvedReferences,PyProtectedMember
             del cls._context[sys._getframe(0)]
@@ -796,7 +831,8 @@ def _convert_request_param(value: str, typ: Type) -> Any:
     try:
         return from_str(value, typ)
     except Exception as e:
-        raise TypeError(f"Converting web request string to Python type {typ}: {e}")
+        text = traceback.format_exc()
+        raise TypeError(f"Converting web request string {value} of {type(value)} to Python type {typ}: {e}\n {text}")
 
 
 def _serialize_return_value(value: Any, encoding: str) -> bytes:
