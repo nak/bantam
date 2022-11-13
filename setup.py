@@ -2,7 +2,7 @@ import os
 
 import setuptools
 
-VERSION = "2.0.6"
+VERSION = "2.0.8"
 
 setuptools.setup(
     name='bantam',
