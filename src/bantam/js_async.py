@@ -381,7 +381,10 @@ class bantam {
 
     @classmethod
     def _generate_request(cls, out: IO, route: str, api: API, tab: str):
-        offset = 1 if 'self' in api._func.__code__.co_varnames else 0
+        try:
+            offset = 1 if 'self' in api._func.__code__.co_varnames else 0
+        except:
+            offset = 0
         docs = APIDoc()
         try:
             api_doc = docs.generate(api=api,
