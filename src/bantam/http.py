@@ -133,15 +133,6 @@ class WebApplication:
         self._postprocessor: Optional[PostProcessor] = None
         self._all_apis: List[API] = []
         self._allowed_get_routes = {}
-        for module in [m for m in modules if m in self.module_mapping_get]:
-            self._allowed_get_routes.update(self.module_mapping_get[module])
-            for api in self.module_mapping_get[module].values():
-                self._all_apis.append(api)
-        allowed_post_routes = {}
-        for module in [m for m in modules if m in self.module_mapping_post]:
-            allowed_post_routes.update(self.module_mapping_post[module])
-            for api in self.module_mapping_get[module].values():
-                self._all_apis.append(api)
 
     def _generate_rest_docs(self):
         rst_out = self._static_path.joinpath('_developer_docs.rst')
@@ -328,12 +319,14 @@ class WebApplication:
         for route, api_get in allowed_get_routes.items():
             log.debug(f">>>>>>>>>> GET ROUTE {route}")
             self._web_app.router.add_get(route, wrap(self, api_get))
+            self._all_apis.append(api_get)
         allowed_post_routes = {}
         for module in [m for m in modules if m in self.module_mapping_post]:
             allowed_post_routes.update(self.module_mapping_post[module])
         for route, api_post in allowed_post_routes.items():
             log.debug(f">>>>>>>>>> POST ROUTE {route}")
             self._web_app.router.add_post(route, wrap(self, api_post))
+            self._all_apis.append(api_post)
         if self._js_bundle_name:
             if self._static_path is None:
                 raise ValueError("If 'js_bundle_name' is specified, 'static_path' cannot be None")

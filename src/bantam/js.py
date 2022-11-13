@@ -257,8 +257,11 @@ class JavascriptGenerator:
 
     @classmethod
     def _generate_request(cls, out: IO, route: str, api: API, tab: str):
-        arg_count = api._func.__code__.co_argcount
-        if 'self' in api._func.__code__.co_varnames:
+        func = api._func
+        if '__func__' in func:
+            func = func.__func__
+        arg_count = func.__code__.co_argcount
+        if 'self' in func.__code__.co_varnames:
             arg_count -= 1
 
         if not api.name.startswith('_') and arg_count != len(api.arg_annotations):
@@ -272,12 +275,12 @@ class JavascriptGenerator:
             state = 'XMLHttpRequest.DONE'
         cls._generate_docs(out, api, tab, callback=callback)
         argnames = [param for param in api.arg_annotations.keys()]
-        if api._func.__name__ == '_create':
+        if func.__name__ == '_create':
             out.write(
                 f"{tab}constructor({', '.join(argnames)}) {{\n".encode(
                     cls.ENCODING))
         else:
-            name = api._func.__name__ if not api.name.startswith('_') else api.name[1:]
+            name = func.__name__ if not api.name.startswith('_') else api.name[1:]
             static_text = "" if api.is_instance_method else "static "
             out.write(f"{tab}{static_text}{name}({callback}, onerror, {', '.join(argnames)}) {{\n".encode(cls.ENCODING))
         if api.method == RestMethod.GET:
