@@ -193,7 +193,7 @@ class WebInterface(ABC):
                                             return cls(self_id)
                                         return conversions.from_str(data, api.return_type)
                             else:
-                                payload = json.dumps({conversions.to_str(k): conversions.to_str(v)
+                                payload = json.dumps({conversions.to_str(k): conversions.normalize_to_json_compat(v)
                                                       for k, v in kwargs_.items()})
                                 async with aiohttp.ClientSession(timeout=api.timeout) as session:
                                     async with session.post(base_url, data=payload) as resp:
@@ -229,7 +229,8 @@ class WebInterface(ABC):
                                                 data = data.decode('utf-8')
                                                 yield conversions.from_str(data, api.return_type)
                             else:
-                                payload = json.dumps({k: conversions.to_str(v) for k, v in kwargs_.items()})
+                                payload = json.dumps({conversions.to_str(k): conversions.normalize_to_json_compat(v)
+                                                      for k, v in kwargs_.items()})
                                 async with aiohttp.ClientSession(timeout=api.timeout) as session:
                                     async with session.post(base_url, data=payload) as resp:
                                         async for data, _ in resp.content.iter_chunks():
@@ -290,7 +291,7 @@ class WebInterface(ABC):
                                             return cls(self_id)
                                         return conversions.from_str(data, api.return_type)
                             else:
-                                payload = json.dumps({conversions.to_str(k): conversions.to_str(v)
+                                payload = json.dumps({conversions.to_str(k): conversions.normalize_to_json_compat(v)
                                                       for k, v in kwargs_.items()})
                                 async with aiohttp.ClientSession(timeout=api.timeout) as session:
                                     async with session.post(base_url, data=payload) as resp:
@@ -326,7 +327,8 @@ class WebInterface(ABC):
                                                 data = data.decode('utf-8')
                                                 yield conversions.from_str(data, api.return_type)
                             else:
-                                payload = json.dumps({k: conversions.to_str(v) for k, v in kwargs_.items()})
+                                payload = json.dumps({conversions.to_str(k): conversions.normalize_to_json_compat(v)
+                                                      for k, v in kwargs_.items()})
                                 async with aiohttp.ClientSession(timeout=api.timeout) as session:
                                     async with session.post(base_url, data=payload) as resp:
                                         async for data, _ in resp.content.iter_chunks():

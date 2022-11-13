@@ -39,7 +39,7 @@ from typing import (
 )
 
 from . import HTTPException
-from .conversions import from_str, to_str
+from .conversions import from_str, to_str, normalize_from_json
 from .decorators import (
     PreProcessor,
     PostProcessor,
@@ -735,11 +735,11 @@ class WebApplication:
                     kwargs = {key: streamed_bytes_arg_value(request)}
                 for k, v in kwargs.items():
                     assert type(v) == str, f"key {k}={v} is of type {str(type(v))}\n{kwargs}"
-                kwargs = {k: _convert_request_param(v, api.arg_annotations[k]) if k != 'self' else v
-                          for k, v in kwargs.items()}
+                #kwargs = {k: _convert_request_param(v, api.arg_annotations[k]) if k != 'self' else v
+                #          for k, v in kwargs.items()}
                 # noinspection PyTypeChecker
-                #kwargs.update({k: _convert_request_param(v, api.synchronous_arg_annotations[k]) if k != 'self' else v
-                #               for k, v in request.query.items() if k in api.synchronous_arg_annotations})
+                kwargs.update({k: _convert_request_param(v, api.synchronous_arg_annotations[k]) if k != 'self' else v
+                               for k, v in request.query.items() if k in api.synchronous_arg_annotations})
             else:
                 # treat payload as json string:
                 bytes_response = await request.read()
@@ -755,6 +755,10 @@ class WebApplication:
             # call the underlying function:
             if addl_args:
                 kwargs.update(addl_args)
+            for k, v in kwargs.items():
+                if k != 'self':
+                    value_type = api.arg_annotations[k]
+                    kwargs[k] = normalize_from_json(v, value_type)
             if api.is_instance_method:
                 self_id = kwargs.get('self')
                 if self_id is None:
