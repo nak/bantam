@@ -777,7 +777,7 @@ class WebApplication:
                 if api.expire_object:
                     del cls.ObjectRepo.instances[self_id]
             elif api.is_class_method:
-                awaitable = api(api.__self__, **kwargs)
+                awaitable = api(**kwargs)
             else:
                 awaitable = api(**kwargs)
             if inspect.isasyncgen(awaitable):
