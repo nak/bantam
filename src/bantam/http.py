@@ -620,7 +620,7 @@ class WebApplication:
                 del kwargs['self']
                 result = api(instance, **kwargs)
             elif api.is_class_method:
-                result = api(api.__self__, *kwargs)
+                result = api(**kwargs)
             else:
                 # call the underlying function:
                 result = api(**kwargs)
