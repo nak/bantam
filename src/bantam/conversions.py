@@ -25,7 +25,7 @@ def normalize_to_json_compat(val: Any) -> Any:
         json_data = {}
         for key, value in val.items():
             json_data[to_str(key)] = normalize_to_json_compat(value)
-    elif type(val) in [list] or (getattr(type(val), '_name', None) in ('List', )):
+    elif type(val) in [list, set, tuple] or (getattr(type(val), '_name', None) in ('List', 'Set', 'Tuple')):
         json_data = []
         for value in val:
             json_data.append(normalize_to_json_compat(value))
@@ -43,6 +43,7 @@ def normalize_from_json(json_data, typ) -> Any:
                 return json_data
             elif arg in (str, int, float):
                 continue
+            # noinspection PyBroadException
             try:
                 return normalize_from_json(json_data, arg)
             except Exception:

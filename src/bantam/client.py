@@ -220,8 +220,8 @@ class WebInterface(ABC):
                                                       for k, v in kwargs_.items()})
                                 async with aiohttp.ClientSession(timeout=api.timeout) as session:
                                     async with session.post(base_url, data=payload) as resp:
+                                        resp.raise_for_status()
                                         async for data, _ in resp.content.iter_chunks():
-                                            resp.raise_for_status()
                                             if data:
                                                 data = data.decode('utf-8')
                                                 yield conversions.from_str(data, api.return_type)
