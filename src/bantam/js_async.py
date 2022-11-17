@@ -421,13 +421,14 @@ class bantam {
         else:
             convert = {str: "convert_str",
                        int: "convert_int",
-                       int: "convert_int",
                        float: "convert_float",
                        bool: "convert_bool",
                        bytes: "convert_bytes",
                        dict: "convert_complex",
                        list: "convert_complex",
-                       None: "convert_None"}[api.return_type]
+                       tuple: "convert_complex",
+                       set: "convert_complex",
+                       None: "convert_None"}.get(api.return_type, "convert_complex")
         tab += "   "
         self_param_code = f"{tab}  \"self\": this.self_id{',' if argnames else ''}" + '\n' if offset == 1 else ""
         param_code = ',\n'.join([f"{tab}   \"{argname}\": {argname}" for argname in argnames])

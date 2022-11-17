@@ -71,14 +71,11 @@ def normalize_from_json(json_data, typ) -> Any:
             for k, v in json_data.items()
         }
     elif getattr(typ, '_name', None) in ('List', ):
-        elem_typ = typ.__args__[0]
-        return [normalize_from_json(value, elem_typ) for value in json_data]
+        return [normalize_from_json(value, typ.__args__[0]) for index, value in enumerate(json_data)]
     elif getattr(typ, '_name', None) in ('Set', ):
-        elem_typ = typ.__args__[0]
-        return {normalize_from_json(value, elem_typ) for value in json_data}
+        return {normalize_from_json(value, typ.__args__[0]) for index, value in enumerate(json_data)}
     elif getattr(typ, '_name', None) in ('Tuple', ):
-        elem_typ = typ.__args__[0]
-        return tuple(normalize_from_json(value, elem_typ) for value in json_data)
+        return tuple(normalize_from_json(value, typ.__args__[index]) for index, value in enumerate(json_data))
     elif hasattr(typ, '__dataclass_fields__'):
         return typ(**{
             name: normalize_from_json(json_data[name], field.type)

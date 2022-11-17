@@ -71,7 +71,7 @@ class Test:
         assert from_str("[0, -3834, 3419]", Set[int]) == {0, -3834, 3419}
 
     def test_tuple_from_str(self):
-        assert from_str("[0, -3834, 3419]", Tuple[int]) == (0, -3834, 3419)
+        assert from_str("[0, -3834, \"hello\"]", Tuple[int, int, str]) == (0, -3834, "hello")
 
     def test_dict_from_str(self):
         d = {'name': 'Jane', 'val': 34}
