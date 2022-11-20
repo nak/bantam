@@ -2,7 +2,7 @@ import asyncio
 import os
 import sys
 from pathlib import Path
-from bantam.web import WebApplication
+from bantam.http import WebApplication
 
 sys.path.insert(0, os.getcwd())
 sys.path.insert(0, os.path.join(os.getcwd(), ".."))

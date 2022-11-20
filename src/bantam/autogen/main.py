@@ -4,12 +4,15 @@ import sys
 from bantam.http import WebApplication
 
 
-def _qual_name(typ):
-    if type is None:
-        return None
-    if hasattr(typ, '__qualname__'):
-        return (typ.__module__ + '.' if typ.__module__ != 'builtins' else '') + typ.__qualname__
-    return str(typ)
+def _name(typ):
+    if typ is None or isinstance(typ, type(None)):
+        return 'None'
+    if hasattr(typ, '__name__'):
+        return typ.__name__
+    elif hasattr(typ, '__qualname__'):
+        return typ.__qualname__
+    module = typ.__module__
+    return str(typ)[len(module) + 1:].replace('NoneType', 'None')
 
 
 def main():
@@ -33,34 +36,40 @@ def main():
         assert class_name, f"Route has improper spec: '{route}'"
         by_class.setdefault(class_name, {})[route] = api
 
-    for class_name, route_mapping in by_class.items():
-        text = f"""
+    text = f"""
 import typing
+
 from bantam.client import WebInterface
 from abc import abstractmethod
 from bantam.http import web_api
 from bantam.api import RestMethod
+"""
+    imports = set()
+    for class_name, route_mapping in by_class.items():
+        text += f"""
 
 class {class_name}Interface(WebInterface):
 
     """
-        method_text = ""
-        imports = set()
         for route, api in route_mapping.items():
             target = route[1:].split('/', maxsplit=1)[1]
             args = api.arg_annotations
-            arg_text = ', '.join(f"{arg_name}: {_qual_name(typ)}" for arg_name, typ in args.items())
+            arg_text = ', '.join(f"{arg_name}: {_name(typ)}" for arg_name, typ in args.items())
             for typ in list(args.values()) + [api.return_type]:
                 if typ is None:
                     continue
                 elif typ.__module__ != 'builtins':
-                    imports.add(f"import {typ.__module__}")
+                    imports.add(f"from {typ.__module__} import {_name(typ).split('[', maxsplit=1)[0]}")
             web_api_args = \
-                f"method={api.method}, content_type='{api.content_type}', is_constructor={api.is_constructor},"\
-                f" uuid_param={api.uuid_param}"
-            return_type = f"{_qual_name(api.return_type)}"
+                f"method={api.method}, content_type='{api.content_type}', "
+            if api.is_constructor:
+                web_api_args += f"is_constructor=True, "
+            if api.uuid_param is not None:
+                web_api_args += f"uuid_param=\"{api.uuid_param}\""
+            return_type = f"{_name(api.return_type)}"
             if api.has_streamed_response:
-                return_type = f"typing.AsyncIterator[{return_type}]"
+                return_type = f"AsyncIterator[{return_type}]"
+                imports.add('from typing import AsyncIterator')
             if api.is_static:
                 addl_decorator = "@staticmethod\n    "
             elif api.is_class_method:
@@ -70,22 +79,22 @@ class {class_name}Interface(WebInterface):
                 addl_decorator = ''
             if api.is_instance_method:
                 arg_text = f"self, {arg_text}"
-            method_text += f"""
+            assert web_api_args
+            text += f"""
     @web_api({web_api_args})
     {addl_decorator}@abstractmethod
     async def {target}({arg_text}) -> {return_type}:
         \"\"\"
         abstraction for {route} web-api route
         \"\"\"
-"""
-        sys.stdout.write('\n'.join(imports) + '\n')
-        sys.stdout.write(text)
-        sys.stdout.write(method_text)
-        sys.stdout.write(f"""
-        
+    """
+        text += f"""
+
 {class_name}{class_suffix} = {class_name}Interface.Client()
-""")
-        sys.stdout.write('\n')
+        """
+    sys.stdout.write('\n'.join(imports) + '\n')
+    sys.stdout.write(text)
+    sys.stdout.write('\n')
     return 0
 
 

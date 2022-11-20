@@ -43,8 +43,8 @@ class RestAPIExampleAsync:
         return RestAPIExampleAsync()
 
     @web_api(content_type='text/plain', method=RestMethod.GET)
-    @staticmethod
-    async def api_get_basic(param1: int, param2: bool, param3: float, param4: str = "text",
+    @classmethod
+    async def api_get_basic(cls, param1: int, param2: bool, param3: float, param4: str = "text",
                             param5: Dict[str, float] = {'f1': 1.0, 'f2': 2.0}) -> str:
         """
         Some sort of doc
