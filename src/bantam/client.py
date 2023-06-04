@@ -39,7 +39,9 @@ and server.  One defines an interface class (usually in its own file) such as:
 ...          yield None
 ...
 
-One then defines the concrete class (which for best practice, has same name, sans 'Interface'):
+One then defines the concrete class (which for best practice, has same name, sans 'Interface').  The
+@web_api decorators need not be specified as bantam will ensure they are inherited. (But if you do
+specify them explicitly, you must ensure they are maintained to be the same):
 
 >>>  from bantam.client import WebInterface
 ...  from bantam.api import RestMethod
@@ -52,7 +54,6 @@ One then defines the concrete class (which for best practice, has same name, san
 ...         self._message_bits = ['I', 'am', 'the', 'very', 'model']
 ...
 ...     @classmethod
-...     @web_api(methos=RestMethod.GET, content_type='application/json')
 ...     async def constructor(cls) -> "MyServerApiInterface":
 ...        '''
 ...        Concreate constructor to create an instance of the class WITH SAEM @web_api DECORATOR AND
@@ -61,7 +62,6 @@ One then defines the concrete class (which for best practice, has same name, san
 ...        return MyServerApi()
 ...
 ...      @classmethod
-...      @web_api(method=RestMethod.GET, content_type='text/plain')
 ...      async def class_method_api(cls, parm1: str) -> Dict[str, int]:
 ...          '''
 ...          Concreate class method to be implemented WITH SAME @web_api DECORATION AND,
@@ -69,7 +69,6 @@ One then defines the concrete class (which for best practice, has same name, san
 ...          '''
 ...          return {'param1': int(parm1)}
 ...
-...      @web_api(method=RestMethod.POST, content_type='application/json')
 ...      async def instance_method_api(self) -> AsyncIterator[str]:
 ...          '''
 ...          Concrete instance method that is an Async Iterator over string values.
