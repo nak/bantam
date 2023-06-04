@@ -131,9 +131,9 @@ the rule of allowed return values above).  Consider this example of a PoetryRead
         Her lamb was sure to go...
         """
 
+        @classmethod
         @web_api(content_type='text/streamed', method=RestMethod.POST)
-        @staticmethod
-        async def read_poem() -> AsyncGenerator[None, str]:
+        async def read_poem(cls) -> AsyncGenerator[None, str]:
             for line in PoetryReader.POEM.strip().splitlines():
                 yield line
                 await asyncio.sleep(2)  # for dramatic effect
@@ -210,9 +210,9 @@ back to the client:
    :caption: Example code for Python web API method that streams data
 
     class Uploader:
+        @classmethod
         @web_api(content_type='text/html')
-        @staticmethod
-        async def receive_streamed_data(size: int, byte_data: AsyncChunkGenerator) -> AsyncGenerator[None, float]
+        async def receive_streamed_data(cls, size: int, byte_data: AsyncChunkGenerator) -> AsyncGenerator[None, float]
             bytes_received: int = 0
             packet_size = 100 # bytes
             with open('some_file_path', 'bw') as f:
@@ -232,9 +232,9 @@ That is for a line itertor the Python code would look like:
 
     ...
     class Uploader:
+        @classmethod
         @web_api(content_type='text/html')
-        @staticmethod
-        async def receive_streamed_data(size: int, line_by_line: AsyncLineGenerator) -> AsyncGenerator[None, float]
+        async def receive_streamed_data(cls, size: int, line_by_line: AsyncLineGenerator) -> AsyncGenerator[None, float]
             ...
             with open('some_file_path', 'bw') as f:
                 async for data in line_by_line:  #<====  NOT a function call as in AsyncChunkIterator
