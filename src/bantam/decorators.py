@@ -68,9 +68,6 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
             raise TypeError("@web_api should only be applied to @classmethod's, @staticmethods or instance methods")
         if func.__name__.startswith('_'):
             raise TypeError("names of web_api methods must not start with underscore")
-        # noinspection PyProtectedMember
-        # clazz = WebApplication._instance_methods_class_map[obj] if not isinstance(obj, staticmethod) else None
-        func._bantam_web_method = method
 
         def get_class_that_defined_method():
             return func.__qualname__.split('.')[0]

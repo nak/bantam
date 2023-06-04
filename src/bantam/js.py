@@ -153,12 +153,13 @@ class JavascriptGenerator:
                         continue
                     cls._generate_request(out, route=f"/{class_name}/_create",
                                           api=API(clazz, clazz._create, method=RestMethod.GET,
-                                                  content_type="test/plain",
+                                                  content_type="test/plain", is_class_method=True,
                                                   is_instance_method=False, is_constructor=True, expire_on_exit=False),
                                           tab=tab)
                     cls._generate_request(out, route=f"/{class_name}/expire",
                                           api=API(clazz, clazz._expire, method=RestMethod.GET,
                                                   content_type="text/plain",
+                                                  is_class_method=True,
                                                   is_instance_method=True, is_constructor=False, expire_on_exit=False),
                                           tab=tab)
                 for method, route_, api in routes:
@@ -262,7 +263,8 @@ class JavascriptGenerator:
     def _generate_request(cls, out: IO, route: str, api: API, tab: str):
         func = api._func
         arg_count = func.__code__.co_argcount
-        if 'self' in func.__code__.co_varnames or 'cls' in func.__code__.co_varnames:
+        if 'self' in func.__code__.co_varnames or 'cls' in func.__code__.co_varnames\
+                or 'this' in func.__code__.co_varnames:
             arg_count -= 1
 
         if not api.name.startswith('_') and arg_count != len(api.arg_annotations):

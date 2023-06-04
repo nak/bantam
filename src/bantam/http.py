@@ -264,6 +264,43 @@ class WebApplication:
         cls.callables_post[route] = api
         cls.module_mapping_post.setdefault(module, {})[route] = api
 
+    @classmethod
+    def preprocess_module(cls, module_: str):
+        if module_ not in sys.modules:
+            mod = importlib.import_module(module_)
+        else:
+            mod = sys.modules.get(module_)
+        for class_name, clazz in inspect.getmembers(mod, predicate=inspect.isclass):
+            from .client import WebInterface
+            if issubclass(clazz, WebInterface):
+                ancestors = clazz.__mro__
+                for ancestor in ancestors:
+                    if ancestor == clazz:
+                        continue
+                    methods = inspect.getmembers(ancestor, predicate=inspect.ismethod) + \
+                              inspect.getmembers(ancestor, predicate=inspect.isfunction)
+                    for method_name, method in methods:
+                        immediate = getattr(clazz, method_name)
+                        if hasattr(immediate, '__func__'):
+                            immediate = immediate.__func__
+                        if hasattr(method, '_bantam_web_api') and not hasattr(immediate, '_bantam_web_api'):
+                            web_api(content_type=method._bantam_web_api.content_type,
+                                    method=method._bantam_web_api.method,
+                                    is_constructor=method._bantam_web_api.is_constructor,
+                                    expire_obj=method._bantam_web_api.expire_object,
+                                    timeout=method._bantam_web_api.timeout,
+                                    uuid_param=method._bantam_web_api.uuid_param)(immediate)
+                            immediate._bantam_web_api._clazz = clazz
+                            immediate._bantam_web_api._name = method._bantam_web_api.name  # handles case of _expire !-> expire
+                        elif hasattr(method, '_bantam_web_api'):
+                            if method._bantam_web_api.method != immediate._bantam_web_api.method or \
+                                    method._bantam_web_api.content_type != immediate._bantam_web_api.content_type or \
+                                    method._bantam_web_api.is_constructor != immediate._bantam_web_api.is_constructor:
+                                raise ValueError(
+                                    f"Mismatch in @web_api specifications in {class_name}.{method_name}"
+                                    f" and {ancestor.__name__}.{method_name}"
+                                )
+
     # noinspection PyProtectedMember
     async def start(self,
                     modules: List[str],
@@ -297,23 +334,18 @@ class WebApplication:
         # noinspection PyProtectedMember
         from aiohttp.web import _run_app as web_run_app
         for module in modules:
-            if not module in sys.modules:
+            self.preprocess_module(module)
+            if module not in sys.modules:
                 mod = importlib.import_module(module)
             else:
                 mod = sys.modules.get(module)
             for api in list(self.module_mapping_get.get(module, {}).values()):
                 if api.name in ['_expire']:
                     continue
-                #if api.is_class_method:
-                    #class_name, method_name = api._real_func.__qualname__.split('.')
-                    #api._func = getattr(getattr(mod, class_name), method_name)
                 self._process_module_classes(mod, api)
             for api in self.module_mapping_post.get(module, {}).values():
                 if api.name in ['_expire']:
                     continue
-                #if api.is_class_method:
-                    #class_name, method_name = api._real_func.__qualname__.split('.')
-                    #api._func = getattr(getattr(mod, class_name), method_name)
                 self._process_module_classes(mod, api)
         allowed_get_routes = {}
         for module in [m for m in modules if m in self.module_mapping_get]:
@@ -427,7 +459,7 @@ class WebApplication:
                 func=_create.__func__,
                 clazz=clazz_
             )
-            self.module_mapping_get.setdefault(clazz_.__module__)[route_name] = api
+            self.module_mapping_get.setdefault(clazz_.__module__, {})[route_name] = api
             self.routes_get[route_name] = clazz._create
             # self._all_apis[route_name] = api
             self._func_wrapper(clazz, clazz_._create, is_class_method=False, is_instance_method=False,
@@ -821,7 +853,7 @@ class WebApplication:
                     if api.clazz and hasattr(api.clazz, '__aenter__'):
                         await instance.__aenter__()
                     if hasattr(api.clazz, 'jsonrepr'):
-                        repr_ = api.clazz.jsonrepr(result)
+                        repr_ = api.clazz.jsonrepr(instance)
                         uuid = repr_.get(api.uuid_param)
                         content_type = 'application/json'
                         result = json.dumps(repr_)
