@@ -166,6 +166,7 @@ class RestAPIExampleAsyncInterface(WebInterface):
         """
         Return value of this instance
         """
+        raise NotImplemented
         yield None
 
     @web_api(content_type='text/plain', method=RestMethod.GET)

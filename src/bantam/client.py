@@ -1,33 +1,113 @@
 """
 Bantam provides and abstraction to easily declare Python clients to interact with a Bantam web application.
-Bantam even provide a means of auto-generating the code for clients.
 
-To auto-generate client code, an application *bantam_generate* is provided:
+To access client code, a server implementation must inherit from an abstract interface common to both client
+and server.  One defines an interface class (usually in its own file) such as:
 
-.. code-block:: bash
+>>>  from bantam.client import WebInterface
+...  from bantam.api import RestMethod
+...  from bantam.decorators web_api
+...  from typing import AsyncIterator
+...  from abc import abstractmethod
+...
+...  class MyServerApiInterface(WebInterface):
+...     @classmethod
+...     @web_api(methos=RestMethod.GET, content_type='application/json')
+...     @abstractmethod
+...     async def constructor(cls) -> "MyServerApiInterface":
+...        '''
+...        Abstract constructor to create an instance of the class
+...        '''
+...
+...      @classmethod
+...      @web_api(method=RestMethod.GET, content_type='text/plain')
+...      @abstractmethod
+...      async def class_method_api(cls, parm1: str) -> Dict[str, int]:
+...          '''
+...           Abstract class method to be implemented WITH SAME @web_api DECORATION
+...          '''
+...
+...      @web_api(method=RestMethod.POST, content_type='application/json')
+...      @abstractmethod
+...      async def instance_method_api(self) -> AsyncIterator[str]:
+...          '''
+...          Abstract instance method that is an Async Iterator over string values. MUST
+...          HAVE SAME @web_api DECORATION AS SERVER IMPL DECLARATION
+...          '''
+...          # never called since abstract, but needed to tell Python that implementation
+...          # will be an async generator/iterator:
+...          yield None
+...
 
-   bantam_generate <module-name> [<suffix>]
+One then defines the concrete class (which for best practice, has same name, sans 'Interface'):
 
-This will generate code to stdout for client classes that match the @web_api's defined in the provided module.  Each
-client class is named the same as the class it is derived from, unless the optional second argument is provided. If
-provided the class name will be appended with this suffix.
+>>>  from bantam.client import WebInterface
+...  from bantam.api import RestMethod
+...  from bantam.decorators web_api
+...  from typing import AsyncIterator
+...
+...  class MyServerApi(MyServerApiInterface):
+...
+...     def __init__(self):
+...         self._message_bits = ['I', 'am', 'the', 'very', 'model']
+...
+...     @classmethod
+...     @web_api(methos=RestMethod.GET, content_type='application/json')
+...     async def constructor(cls) -> "MyServerApiInterface":
+...        '''
+...        Concreate constructor to create an instance of the class WITH SAEM @web_api DECORATOR AND
+...        SIGNATURE
+...        '''
+...        return MyServerApi()
+...
+...      @classmethod
+...      @web_api(method=RestMethod.GET, content_type='text/plain')
+...      async def class_method_api(cls, parm1: str) -> Dict[str, int]:
+...          '''
+...          Concreate class method to be implemented WITH SAME @web_api DECORATION AND,
+...          OF COURSE, SIGNATURE
+...          '''
+...          return {'param1': int(parm1)}
+...
+...      @web_api(method=RestMethod.POST, content_type='application/json')
+...      async def instance_method_api(self) -> AsyncIterator[str]:
+...          '''
+...          Concrete instance method that is an Async Iterator over string values.
+...          MUST HAVE SAME @web_api DECORATION AND SIGNATURE
+...          '''
+...          # never called since abstract, but needed to tell Python that implementation
+...          # will be an async generator/iterator:
+...          for text in self._message_bits:
+...              yield text
+...
 
-You can also generate this code manually if desired, of course, following the pattern from auto-generation of code.
-This code provides an abstraction to the @web_api interface implementation, stand-alone from the implementation code
-if desired. (e.g. providing a stand-alone client package for install separate from the implementation server-side
-package.)
+One can then declare a Client that acts as a proxy to make calls to the server, thereby keeping the
+http protocol details hidden (abstracted away frm the user):
+
+>>>  def async_call():
+...      client = MyServerApiInterface.Client(end_point='https://blahblahblah')
+...      instance = await client.constructor()
+...      async for text in instance.instance_method_api():
+...          print(text)
+...
+
+If you do not fallow the recommended practice of the interface have the same name as the concreate class, only with
+an "Interface" suffix, you will have to specify *impl_name=<name-of-concrete-class>* as a parameter to Client class
+method above.  The *end_point* parameter specifies the base url to the server that serves up MyServceApi class.
 
 """
 import inspect
 import json
 from abc import ABC
 from functools import wraps
-from typing import Any, Dict, TypeVar, Optional, Type
+from typing import Any, Dict, TypeVar, Optional, Type, AsyncIterator
 
 import aiohttp
 
 from bantam import conversions
 from bantam.api import API, RestMethod
+
+__all__ = ["WebInterface"]
 
 C = TypeVar('C', bound="WebInterface")
 
