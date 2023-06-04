@@ -1,4 +1,5 @@
 import inspect
+import sys
 from typing import Any, Callable, Awaitable, Union, Optional, Dict
 
 from aiohttp.web import Request, Response
@@ -50,28 +51,36 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
     if not isinstance(content_type, str):
         raise Exception("@web_api must provide one str argument which is the content type")
 
-    def wrapper(obj: Union[WebApi, staticmethod]):
-        is_static = isinstance(obj, staticmethod)
-        is_classmethod = isinstance(obj, classmethod)
-        if not (is_static or is_classmethod) and is_constructor:
-            raise TypeError("@web_api's that are declared constructors must be static methods")
-        if is_static and expire_obj:
+    def wrapper(func: Union[WebApi, staticmethod, classmethod]) -> Union[WebApi, staticmethod, classmethod]:
+        if not inspect.ismethod(func):
+            args = inspect.signature(func)
+            first_arg = list(args.parameters.keys())[0] if args else None
+            is_static = first_arg not in {'self', 'cls'}
+            is_class_method = first_arg == 'cls'
+        else:
+            is_static = isinstance(func, staticmethod)
+            is_class_method = isinstance(func, classmethod)
+        if not (is_static or is_class_method or is_class_method) and is_constructor:
+            raise TypeError("@web_api's that are declared constructors must be static or class methods")
+        if (is_static or is_class_method) and expire_obj:
             raise TypeError("@web_api's expire_obj param can only be set True for instance methods")
-        if is_static:
-            obj = obj.__func__
-        if not is_static and not is_classmethod and not inspect.ismethod(obj) and not inspect.isfunction(obj):
+        if not is_static and not is_class_method and not inspect.ismethod(func) and not inspect.isfunction(func):
             raise TypeError("@web_api should only be applied to @classmethod's, @staticmethods or instance methods")
-        if (not is_classmethod and obj.__name__.startswith('_'))\
-            or (is_classmethod and obj.__func__.__name__.startswith('_')):
+        if func.__name__.startswith('_'):
             raise TypeError("names of web_api methods must not start with underscore")
         # noinspection PyProtectedMember
         # clazz = WebApplication._instance_methods_class_map[obj] if not isinstance(obj, staticmethod) else None
-        obj._bantam_web_method = method
-        return WebApplication._func_wrapper(None,
-                                            obj,
+        func._bantam_web_method = method
+
+        def get_class_that_defined_method():
+            return func.__qualname__.split('.')[0]
+
+        return WebApplication._func_wrapper((func.__module__, get_class_that_defined_method())
+                                                if is_class_method else None,
+                                            func,
                                             timeout=timeout,
-                                            is_instance_method=not is_static and not is_classmethod,
-                                            is_class_method=is_classmethod,
+                                            is_instance_method=not is_static and not is_class_method,
+                                            is_class_method=is_class_method,
                                             method=method,
                                             content_type=content_type,
                                             is_constructor=is_constructor,

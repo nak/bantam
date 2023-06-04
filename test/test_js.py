@@ -46,8 +46,8 @@ class RestAPIExample:
 
     result_queue : Optional[asyncio.Queue] = None
 
-    @web_api(content_type='text/plain', method=RestMethod.GET)
     @staticmethod
+    @web_api(content_type='text/plain', method=RestMethod.GET)
     async def api_get_basic(param1: int, param2: bool, param3: float, param4: str = "text") -> str:
         """
         Some sort of doc

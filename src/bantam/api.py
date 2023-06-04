@@ -19,14 +19,14 @@ class API:
                  is_constructor: bool,
                  timeout: Optional[ClientTimeout] = None,
                  expire_on_exit: bool = False, uuid_param: Optional[str] = None):
-        annotations = func.__annotations__ if not is_class_method else func.__func__.__annotations__
+        annotations = func.__annotations__
         self._clazz = clazz
         self._is_class_method = is_class_method
         self._is_instance_method = is_instance_method
         self._is_static = not self._is_class_method and not self._is_instance_method
         self._expire_obj = expire_on_exit
         self._func = func
-        self._real_func = func if not is_class_method else func.__func__
+        self._real_func = func
         self._method = method
         self._timeout = timeout or ClientTimeout()
         if 'return' not in annotations:

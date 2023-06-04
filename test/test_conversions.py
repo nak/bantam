@@ -4,7 +4,7 @@ from typing import Dict, List, Union, Tuple, Set
 
 import pytest
 
-from bantam.conversions import to_str, from_str
+from bantam.conversions import to_str, from_str, normalize_from_json
 
 
 class Test:
@@ -59,23 +59,29 @@ class Test:
 
     def test_float_from_str(self):
         assert from_str("-9.3345", float) == pytest.approx(-9.3345)
+        assert normalize_from_json('9.3345', float) == pytest.approx(9.3345)
 
     def test_bool_from_str(self):
         assert from_str("TruE", bool) is True
         assert from_str("false", bool) is False
+        assert normalize_from_json("true", bool) is True
 
     def test_list_from_str(self):
         assert from_str("[0, -3834, 3419]", List[int]) == [0, -3834, 3419]
+        assert normalize_from_json(['0', '-3834', '3419'], List[int]) == [0, -3834, 3419]
 
     def test_set_from_str(self):
         assert from_str("[0, -3834, 3419]", Set[int]) == {0, -3834, 3419}
+        assert normalize_from_json(['0', '-3834', '3419'], Set[int]) == {0, -3834, 3419}
 
     def test_tuple_from_str(self):
         assert from_str("[0, -3834, \"hello\"]", Tuple[int, int, str]) == (0, -3834, "hello")
+        assert normalize_from_json(['0', '-3834', "hello"], Tuple[int, int, str]) == (0, -3834, "hello")
 
     def test_dict_from_str(self):
         d = {'name': 'Jane', 'val': 34}
         assert from_str(json.dumps(d), Dict[str, Union[str, int]]) == d
+        assert normalize_from_json(d, Dict[str, Union[str, int]]) == d
 
     def test_dataclass_from_str(self):
 
@@ -97,6 +103,8 @@ class Test:
             'd': {'A': 'a'},
             'subdata': {'s': "name", 'l': [1, -5, 34]}
         }
+        raw_data = d.copy()
         image = json.dumps(d)
         d['subdata'] = SubData(**d['subdata'])
         assert from_str(image, Data) == Data(**d)
+        assert normalize_from_json(raw_data, Data) == Data(**d)

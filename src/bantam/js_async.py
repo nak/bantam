@@ -56,6 +56,9 @@ async generators/iterator usage.
 
 
 """
+import inspect
+import sys
+
 from aiohttp.web_response import Response, StreamResponse
 from typing import Callable, Awaitable, Union
 from typing import Dict, Tuple, List, IO
@@ -134,7 +137,7 @@ class bantam {
                yield resp.value;
             } else {
                let value = new TextDecoder().decode(resp.value);
-               for (var val of value.split('\\n')){
+               for (var val of value.split('\\0')){
                    if(val){
                       yield convert(val);
                    }
@@ -223,7 +226,7 @@ class bantam {
                yield resp.value;
             } else {
                let value = new TextDecoder().decode(resp.value);
-               for (var val of value.split('\\n')){
+               for (var val of value.split('\\0')){
                    if(val){
                       yield convert(val);
                    }
@@ -336,13 +339,21 @@ class bantam {
             for name_, child_ns in ns.child_namespaces.items():
                 out.write(f"{parent_name}.{name_} = class {{}}\n".encode(cls.ENCODING))
                 process_namespace(child_ns, parent_name + '.' + name_)
+            clazz_map = {c.__name__: c for c in WebApplication._class_instance_methods
+                         if WebApplication._class_instance_methods[c]}
             for class_name, routes in ns.classes.items():
+                if class_name in clazz_map:
+                    clazz = clazz_map[class_name]
+                    if inspect.isabstract(clazz):
+                        continue
                 out.write(f"\n{parent_name}.{class_name} = class {{\n".encode(cls.ENCODING))
-                clazz_map = {c.__name__: c for c in WebApplication._class_instance_methods
-                             if WebApplication._class_instance_methods[c]}
-                for api in [api for api in WebApplication._all_methods if (api.qualname.startswith(class_name)
+                for api in [api for api in WebApplication._all_methods if (api.qualname.split('.')[0] == class_name
                                                                            and api.clazz is not None)]:
                     if api.is_constructor:
+                        if isinstance(api.clazz, tuple):
+                            module_name, class_name = api.clazz
+                            module = sys.modules.get(module_name)
+                            api._clazz = getattr(module, class_name)
                         clazz_map[api.clazz.__name__] = api.clazz
                 if class_name in clazz_map:
                     clazz = clazz_map[class_name]

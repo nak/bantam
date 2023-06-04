@@ -63,6 +63,7 @@ exception, these callbacks are invoked instead, upon response from the server.
 
 
 """
+import inspect
 import re
 from aiohttp.web_response import Response, StreamResponse
 from typing import Callable, Awaitable, Union
@@ -148,6 +149,8 @@ class JavascriptGenerator:
 
                 if class_name in clazz_map:
                     clazz = clazz_map[class_name]
+                    if inspect.isabstract(clazz):
+                        continue
                     cls._generate_request(out, route=f"/{class_name}/_create",
                                           api=API(clazz, clazz._create, method=RestMethod.GET,
                                                   content_type="test/plain",
@@ -258,10 +261,8 @@ class JavascriptGenerator:
     @classmethod
     def _generate_request(cls, out: IO, route: str, api: API, tab: str):
         func = api._func
-        if '__func__' in func:
-            func = func.__func__
         arg_count = func.__code__.co_argcount
-        if 'self' in func.__code__.co_varnames:
+        if 'self' in func.__code__.co_varnames or 'cls' in func.__code__.co_varnames:
             arg_count -= 1
 
         if not api.name.startswith('_') and arg_count != len(api.arg_annotations):
@@ -447,7 +448,7 @@ class JavascriptGenerator:
         if streamed_response and response_type not in [bytes, str, None]:
             convert_codeblock = f"""
 {tab}    // TODO: Can we clean this up a little?
-{tab}    let vals = request.response.substr(request.seenBytes).trim().split('\\n');
+{tab}    let vals = request.response.substr(request.seenBytes).trim().split('\\0');
 {tab}    for (var i = 0; i < vals.length; ++i) {{
 {tab}       let val = vals[i];
 {tab}       let done = (i == vals.length -1) && (request.readyState == XMLHttpRequest.DONE);
@@ -467,7 +468,7 @@ class JavascriptGenerator:
             convert_codeblock = f"""
 {tab}    // TODO: Can we clean this up a little?
 {tab}    let chunk = request.response.substr(request.seenBytes).trim();
-{tab}    let vals = chunk.length == 0?[]:chunk.split('\\n');
+{tab}    let vals = chunk.length == 0?[]:chunk.split('\\0');
 {tab}    if (buffered !== null){{{callback}(buffered, request.readyState == XMLHttpRequest.DONE); buffered = null; }}
 {tab}    for (var i = 0; i < vals.length-1 ; ++i) {{
 {tab}       let val = vals[i];

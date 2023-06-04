@@ -297,21 +297,23 @@ class WebApplication:
         # noinspection PyProtectedMember
         from aiohttp.web import _run_app as web_run_app
         for module in modules:
-            # ensures web api's are loaded:
-            mod = importlib.import_module(module)
+            if not module in sys.modules:
+                mod = importlib.import_module(module)
+            else:
+                mod = sys.modules.get(module)
             for api in list(self.module_mapping_get.get(module, {}).values()):
                 if api.name in ['_expire']:
                     continue
-                if api.is_class_method:
-                    class_name, method_name = api._real_func.__qualname__.split('.')
-                    api._func = getattr(getattr(mod, class_name), method_name)
+                #if api.is_class_method:
+                    #class_name, method_name = api._real_func.__qualname__.split('.')
+                    #api._func = getattr(getattr(mod, class_name), method_name)
                 self._process_module_classes(mod, api)
             for api in self.module_mapping_post.get(module, {}).values():
                 if api.name in ['_expire']:
                     continue
-                if api.is_class_method:
-                    class_name, method_name = api._real_func.__qualname__.split('.')
-                    api._func = getattr(getattr(mod, class_name), method_name)
+                #if api.is_class_method:
+                    #class_name, method_name = api._real_func.__qualname__.split('.')
+                    #api._func = getattr(getattr(mod, class_name), method_name)
                 self._process_module_classes(mod, api)
         allowed_get_routes = {}
         for module in [m for m in modules if m in self.module_mapping_get]:
@@ -515,21 +517,18 @@ class WebApplication:
         func._bantam_web_api = api
         if hasattr(func, '__func__'):
             func.__func__._bantam_web_api = api
+            func = func.__func__
         if is_instance_method:
-            if not inspect.iscoroutinefunction(func) and not inspect.isasyncgenfunction(func):
-                raise ValueError("the @web_api decorator can only be applied to classes with public "
-                                 f"methods that are coroutines (async); see {api.qualname}")
             cls._instance_methods.append(api)
-        elif not is_class_method:
-            if not inspect.iscoroutinefunction(func) and not inspect.isasyncgenfunction(func):
-                raise ValueError("the @web_api decorator can only be applied to methods that are coroutines (async)")
-        else:
-            if not inspect.iscoroutinefunction(func.__func__) and not inspect.isasyncgenfunction(func.__func__):
-                raise ValueError("the @web_api decorator can only be applied to methods that are coroutines (async)")
+        if not inspect.iscoroutinefunction(func) and not inspect.isasyncgenfunction(func):
+            raise ValueError("the @web_api decorator can only be applied to classes with public "
+                             f"methods that are coroutines (async); see {api.qualname}")
         cls._all_methods.append(api)
         name = api.qualname.replace('__init__', 'create').replace('._expire', '.expire')
         name_parts = name.split('.')[-2:]
         route = '/' + '/'.join(name_parts)
+        if '__isabstractmethod__' in func.__dict__:
+            return func
 
         async def invoke(app: WebApplication, request: Request):
             nonlocal preprocess, postprocess
@@ -621,7 +620,13 @@ class WebApplication:
                 del kwargs['self']
                 result = api(instance, **kwargs)
             elif api.is_class_method:
-                result = api(**kwargs)
+                if isinstance(api.clazz, tuple):
+                    module_name, class_name = api.clazz
+                    api._clazz = getattr(sys.modules.get(module_name), class_name)
+                if 'cls' not in kwargs:
+                    result = api(**kwargs, cls=api.clazz)
+                else:
+                    result = api(**kwargs)
             else:
                 # call the underlying function:
                 result = api(**kwargs)
@@ -639,8 +644,8 @@ class WebApplication:
                     # noinspection PyTypeChecker
                     async for res in result:
                         serialized = _serialize_return_value(res, encoding)
-                        if not isinstance(res, bytes):
-                            serialized += b'\n'
+                        if isinstance(res, str):
+                            serialized += b'\0'
                         await response.write(serialized)
                 except Exception as e:
                     print(str(e))
@@ -736,9 +741,6 @@ class WebApplication:
                     kwargs = {key: streamed_bytes_arg_value(request)}
                 for k, v in kwargs.items():
                     assert type(v) == str, f"key {k}={v} is of type {str(type(v))}\n{kwargs}"
-                #kwargs = {k: _convert_request_param(v, api.arg_annotations[k]) if k != 'self' else v
-                #          for k, v in kwargs.items()}
-                # noinspection PyTypeChecker
                 kwargs.update({k: _convert_request_param(v, api.synchronous_arg_annotations[k]) if k != 'self' else v
                                for k, v in request.query.items() if k in api.synchronous_arg_annotations})
             else:
@@ -760,6 +762,8 @@ class WebApplication:
                 if k != 'self':
                     value_type = api.arg_annotations[k]
                     kwargs[k] = normalize_from_json(v, value_type)
+                else:
+                    kwargs[k] = v
             if api.is_instance_method:
                 self_id = kwargs.get('self')
                 if self_id is None:
@@ -778,7 +782,11 @@ class WebApplication:
                 if api.expire_object:
                     del cls.ObjectRepo.instances[self_id]
             elif api.is_class_method:
-                awaitable = api(**kwargs)
+
+                if isinstance(api.clazz, tuple):
+                    module_name, class_name = api.clazz
+                    api._clazz = getattr(sys.modules.get(module_name), class_name)
+                awaitable = api(**kwargs, cls=api.clazz)
             else:
                 awaitable = api(**kwargs)
             if inspect.isasyncgen(awaitable):
@@ -796,19 +804,38 @@ class WebApplication:
                     # noinspection PyTypeChecker
                     async for res in awaitable:
                         serialized = _serialize_return_value(res, encoding)
-                        if not isinstance(res, bytes):
-                            serialized += b'\n'
+                        if isinstance(res, str):
+                            serialized += b'\0'
                         await response.write(serialized)
                 except Exception as e:
                     print(str(e))
                     await async_q.put(None)
-                    raise RuntimeError(f"Execption in server-side logic: {e}") from e
+                    raise RuntimeError(f"Exception in server-side logic: {e}") from e
                 await response.write_eof()
             else:
                 #################
                 #  regular response
                 #################
-                result = _serialize_return_value(await awaitable, encoding)
+                if api.is_constructor:
+                    instance = await awaitable
+                    if api.clazz and hasattr(api.clazz, '__aenter__'):
+                        await instance.__aenter__()
+                    if hasattr(api.clazz, 'jsonrepr'):
+                        repr_ = api.clazz.jsonrepr(result)
+                        uuid = repr_.get(api.uuid_param)
+                        content_type = 'application/json'
+                        result = json.dumps(repr_)
+                    else:
+                        uuid = kwargs.get(api.uuid_param, str(uuid_pkg.uuid4()))
+                        result = json.dumps({'uuid': uuid})
+                    cls.ObjectRepo.instances[uuid] = instance
+                    cls.ObjectRepo.by_instance[instance] = uuid
+                    cls.ObjectRepo.expiry[uuid] = asyncio.create_task(cls.ObjectRepo.expire_obj(
+                        uuid, cls.ObjectRepo.DEFAULT_OBJECT_EXPIRATION))
+                    return Response(status=200, body=result if result is not None else b"Success",
+                                    content_type=content_type)
+                else:
+                    result = _serialize_return_value(await awaitable, encoding)
                 return Response(status=200, body=result if result is not None else b"Success",
                                 content_type=content_type)
 
@@ -844,7 +871,7 @@ def _serialize_return_value(value: Any, encoding: str) -> bytes:
     """
     Serialize a Python value into bytes to return through a Rest API.  If a basic type such as str, int or float, a
     simple str conversion is done, then converted to bytes.  If more complex, the conversion will invoke the
-    'serialize' method of the value, raising TypeError if such a method does not exist or does not have a bare
+    '__str__' method of the value, raising TypeError if such a method does not exist or does not have a bare
     (no-parameter) signature.
 
     :param value: value to convert

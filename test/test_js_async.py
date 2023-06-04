@@ -16,7 +16,7 @@ from bantam.http import WebApplication
 
 import sys
 sys.path.insert(0, os.path.dirname(__file__))
-from example.class_rest_example import RestAPIExampleAsync
+from class_rest_get import RestAPIExampleAsync
 
 
 class TestJavascriptGenerator:
@@ -58,7 +58,7 @@ class TestJavascriptGenerator:
             return result
 
         try:
-            completed, _ = await asyncio.wait([app.start(modules=['example.class_rest_example']),
+            completed, _ = await asyncio.wait([app.start(modules=['class_rest_get']),
                                                launch_browser()], timeout=100000, return_when=asyncio.FIRST_COMPLETED)
             results = [c.result() for c in completed if c is not None]
         except Exception as e:
