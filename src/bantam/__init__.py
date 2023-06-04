@@ -16,9 +16,9 @@ Let's look at setting up a simple WebApplication on your localhost:
 ...
 ... class Greetings:
 ...
+...     @classmethod
 ...     @web_api(content_type='text/html', method=RestMethod.GET)
-...     @staticmethod
-...     async def welcome(name: str) -> str:
+...     async def welcome(cls, name: str) -> str:
 ...         \"\"\"
 ...         Welcome someone
 ...
@@ -27,8 +27,8 @@ Let's look at setting up a simple WebApplication on your localhost:
 ...         \"\"\"
 ...         return f"<html><body><p>Welcome, {name}!</p></body></html>"
 ...
-...     @web_api(content_type='text/html', method=RestMethod.GET)
 ...     @classmethod
+...     @web_api(content_type='text/html', method=RestMethod.GET)
 ...     async def goodbye(cls, type_of_day: str) -> str:
 ...         \"\"\"
 ...         Tell someone goodbye by telling them to have a day (of the given type)
