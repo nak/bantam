@@ -72,8 +72,8 @@ class WebApplication:
     Main class for running a WebApplication server. See the documentation for *aiohttp* for information on the various
     parameters.  Additional parameters for this class are:
 
-    :static_path: root path to where static files will be kept, mapped to a route "/static", if provided
-    :js_bundle_name: the name of the javascript file, **without** exetension, where the client-side API
+    :param static_path: root path to where static files will be kept, mapped to a route "/static", if provided
+    :param js_bundle_name: the name of the javascript file, **without** extension, where the client-side API
        will be generated, if provided
     """
     _context: Dict[Awaitable, Request] = {}
@@ -230,7 +230,7 @@ class WebApplication:
 
         :param route: route to register under
         :param async_handler: the raw handler for handling an incoming Request and returning a Response
-        :param api: the high-level deocrated web_api that will be invoked by the handler
+        :param api: the high-level decorated web_api that will be invoked by the handler
         :param module: module that is holding the @web_api
         """
         if route in cls.routes_get or route in cls.routes_post:
@@ -264,6 +264,7 @@ class WebApplication:
         cls.callables_post[route] = api
         cls.module_mapping_post.setdefault(module, {})[route] = api
 
+    # noinspection PyProtectedMember
     @classmethod
     def preprocess_module(cls, module_: str):
         if module_ not in sys.modules:
@@ -278,7 +279,7 @@ class WebApplication:
                     if ancestor == clazz:
                         continue
                     methods = inspect.getmembers(ancestor, predicate=inspect.ismethod) + \
-                              inspect.getmembers(ancestor, predicate=inspect.isfunction)
+                        inspect.getmembers(ancestor, predicate=inspect.isfunction)
                     for method_name, method in methods:
                         immediate = getattr(clazz, method_name)
                         if hasattr(immediate, '__func__'):
@@ -291,13 +292,22 @@ class WebApplication:
                                     timeout=method._bantam_web_api.timeout,
                                     uuid_param=method._bantam_web_api.uuid_param)(immediate)
                             immediate._bantam_web_api._clazz = clazz
-                            immediate._bantam_web_api._name = method._bantam_web_api.name  # handles case of _expire !-> expire
+                            # handles case of _expire !-> expire
+                            immediate._bantam_web_api._name = method._bantam_web_api.name
                         elif hasattr(method, '_bantam_web_api'):
-                            if method._bantam_web_api.method != immediate._bantam_web_api.method or \
-                                    method._bantam_web_api.content_type != immediate._bantam_web_api.content_type or \
-                                    method._bantam_web_api.is_constructor != immediate._bantam_web_api.is_constructor:
+                            has_diff_web_api = (
+                                method._bantam_web_api.method != immediate._bantam_web_api.method
+                                or method._bantam_web_api.content_type != immediate._bantam_web_api.content_type
+                                or method._bantam_web_api.is_constructor != immediate._bantam_web_api.is_constructor
+                            )
+                            if has_diff_web_api:
                                 raise ValueError(
                                     f"Mismatch in @web_api specifications in {class_name}.{method_name}"
+                                    f" and {ancestor.__name__}.{method_name}"
+                                )
+                            elif method._bantam_web_api.arg_annotations != immediate._bantam_web_api.arg_annotations:
+                                raise TypeError(
+                                    f"Mismatch in name and/or type specifications between {class_name}.{method_name}"
                                     f" and {ancestor.__name__}.{method_name}"
                                 )
 
@@ -374,7 +384,7 @@ class WebApplication:
                 if self._using_async:
                     JavascriptGeneratorAsync.generate(
                         out=out, skip_html=False,
-                        allowed_routes =list(self.routes_get.keys()) + list(self.routes_post.keys())
+                        allowed_routes=list(self.routes_get.keys()) + list(self.routes_post.keys())
                     )
                 else:
                     JavascriptGenerator.generate(out=out, skip_html=False)
@@ -417,15 +427,15 @@ class WebApplication:
 
             # noinspection PyDecorator
             @staticmethod
-            async def _create(*args, **kargs) -> clazz_:
-                if kargs.get('__uuid') or (api.uuid_param is not None and api.uuid_param in kargs):
-                    self_id = kargs[api.uuid_param] if api.uuuid_param is not None else kargs['__uuid']
-                    del kargs['__uuid']
+            async def _create(*args, **kwargs) -> clazz_:
+                if kwargs.get('__uuid') or (create_api.uuid_param is not None and create_api.uuid_param in kwargs):
+                    self_id = kwargs[create_api.uuid_param] if create_api.uuuid_param is not None else kwargs['__uuid']
+                    del kwargs['__uuid']
                     if self_id in self.ObjectRepo.instances:
                         raise HTTPException(404, f"UUid {self_id} already in use. uuid's must be unique")
                 else:
                     self_id = str(uuid_pkg.uuid4())
-                instance = clazz_(*args, **kargs)
+                instance = clazz_(*args, **kwargs)
                 if hasattr(clazz_, '__aenter__'):
                     await instance.__aenter__()
                 self.ObjectRepo.instances[self_id] = instance
@@ -450,7 +460,7 @@ class WebApplication:
             _create.__annotations__ = clazz_._create.__annotations__
             # noinspection PyProtectedMember
             route_name = f"/{clazz_.__name__}/_create"
-            api = API(
+            create_api = API(
                 content_type='text/plain',
                 is_instance_method=False,
                 is_class_method=False,
@@ -459,7 +469,7 @@ class WebApplication:
                 func=_create.__func__,
                 clazz=clazz_
             )
-            self.module_mapping_get.setdefault(clazz_.__module__, {})[route_name] = api
+            self.module_mapping_get.setdefault(clazz_.__module__, {})[route_name] = create_api
             self.routes_get[route_name] = clazz._create
             # self._all_apis[route_name] = api
             self._func_wrapper(clazz, clazz_._create, is_class_method=False, is_instance_method=False,
@@ -489,8 +499,8 @@ class WebApplication:
 
             # noinspection PyProtectedMember
             self._func_wrapper(clazz, clazz_._expire, is_class_method=False, is_instance_method=True,
-                              expire_on_exit=False,
-                              is_constructor=False, method=RestMethod.GET, content_type="text/plain")
+                               expire_on_exit=False,
+                               is_constructor=False, method=RestMethod.GET, content_type="text/plain")
 
         for clazz in [cl for _, cl in inspect.getmembers(mod) if inspect.isclass(cl)]:
             # noinspection PyProtectedMember
@@ -507,10 +517,10 @@ class WebApplication:
                         raise TypeError("@web_api's declared as constructors must return that class's type")
 
                 if api.expire_object:
-                    async def wrapped(this, *args, **kargs):
+                    async def wrapped(this, *args, **kwargs):
                         try:
                             # noinspection PyProtectedMember
-                            return await api._func(this, *args, **kargs)
+                            return await api._func(this, *args, **kwargs)
                         finally:
                             if this in self.ObjectRepo.by_instance:
                                 uuid = self.ObjectRepo.by_instance[this]
@@ -806,9 +816,9 @@ class WebApplication:
                         self_id = json.loads(self_id)['uuid']
                         instance = cls.ObjectRepo.instances.get(self_id)
                         if instance is None:
-                            raise Exception()
-                    except:
-                        raise ValueError(f"No instance id found for request {self_id}")
+                            raise ValueError(f"No instance id found for request {self_id}")
+                    except Exception:
+                        raise ValueError(f"Error in json representation of an instance: {self_id}")
                 del kwargs['self']
                 awaitable = api(instance, **kwargs)
                 if api.expire_object:

@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Callable, Awaitable, AsyncGenerator, Dict, List, Optional
+from typing import Callable, Awaitable, AsyncGenerator, Dict, List, Optional, Type
 
 from aiohttp import ClientTimeout
 
@@ -113,12 +113,12 @@ class API:
         return self._arg_annotations
 
     @property
-    def async_arg_annotations(self) -> Dict[str, str]:
+    def async_arg_annotations(self) -> Dict[str, Type]:
         return self._async_arg_annotations
 
     @property
-    def synchronous_arg_annotations(self) -> List[str]:
-        return [a for a in self._arg_annotations if a not in self._async_arg_annotations]
+    def synchronous_arg_annotations(self) -> Dict[str, Type]:
+        return {a: v for a, v in self._arg_annotations.items() if a not in self._async_arg_annotations}
 
     @property
     def return_type(self):

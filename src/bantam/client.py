@@ -56,7 +56,7 @@ specify them explicitly, you must ensure they are maintained to be the same):
 ...     @classmethod
 ...     async def constructor(cls) -> "MyServerApiInterface":
 ...        '''
-...        Concreate constructor to create an instance of the class WITH SAEM @web_api DECORATOR AND
+...        Concreate constructor to create an instance of the class WITH SAME @web_api DECORATOR AND
 ...        SIGNATURE
 ...        '''
 ...        return MyServerApi()
@@ -99,7 +99,7 @@ import inspect
 import json
 from abc import ABC
 from functools import wraps
-from typing import Any, Dict, TypeVar, Optional, Type, AsyncIterator
+from typing import Any, Dict, TypeVar, Optional, Type, AsyncIterator, Generic
 
 import aiohttp
 
@@ -376,5 +376,14 @@ class WebInterface(ABC):
             else:
                 cls._add_class_method(Impl, impl_name, end_point, method, common_headers)
 
-        WebInterface._clients[key] = Impl
-        return Impl
+        class ImplProper(Impl, Generic[C]):
+            """
+            provides proper typing on return value, without conflicting with Python's abstract class rules
+            which ignore dynamically added methods as above for the concrete implementations
+            """
+
+            def __init__(self, *args, **kwargs):
+                Impl.__init__(self, *args, **kwargs)
+
+        WebInterface._clients[key] = ImplProper[C]
+        return ImplProper[C]
