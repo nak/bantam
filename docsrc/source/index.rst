@@ -27,10 +27,13 @@ Introduction
 The specific WebApplication API is simple, and only the *start* method is of importance:
 
 .. autoclass:: bantam.http.WebApplication
-    :members: DuplicateRoute, start
+   :members: DuplicateRoute, start
 
 Of particular interest is the modules parameter of the start method.  This determines which modules and therefore
 which classes and their the @web_api definitions are loaded.
+
+.. automodule:: bantam.decorators
+   :members: web_api
 
 Allowed Type Annotations
 ========================
@@ -114,7 +117,7 @@ an *AsyncGenerator*, returning a type *AsyncGenerator[None, <int, float, bool, s
 the rule of allowed return values above).  Consider this example of a PoetryReader class:
 
 .. code-block:: python
-    :caption: Example of server code to stream a poem back to the client
+   :caption: Example of server code to stream a poem back to the client
 
     import asyncio
     import os

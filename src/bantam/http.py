@@ -15,7 +15,7 @@ import types
 import uuid as uuid_pkg
 
 import logging
-from aiohttp import ClientTimeout
+from aiohttp import ClientTimeout, ClientConnectionError
 from aiohttp import web
 from aiohttp.web import (
     Application,
@@ -23,6 +23,7 @@ from aiohttp.web import (
     Response,
     StreamResponse,
 )
+from asyncio import CancelledError
 from contextlib import suppress
 from pathlib import Path
 from ssl import SSLContext
@@ -542,6 +543,7 @@ class WebApplication:
                       expire_on_exit: bool,
                       method: RestMethod,
                       content_type: str,
+                      on_disconnect: Optional[Callable[[], None]] = None,
                       timeout: Optional[ClientTimeout] = None,
                       uuid_param: Optional[str] = None,
                       preprocess: Optional[PreProcessor] = None,
@@ -554,7 +556,7 @@ class WebApplication:
         :return: function back, having processed as a web api and registered the route
         """
         api = API(clazz, func, method=method, content_type=content_type, is_instance_method=is_instance_method,
-                  is_class_method=is_class_method,
+                  is_class_method=is_class_method, on_disconnect=on_disconnect,
                   is_constructor=is_constructor, expire_on_exit=expire_on_exit, uuid_param=uuid_param, timeout=timeout)
         func._bantam_web_api = api
         if hasattr(func, '__func__'):
@@ -600,6 +602,14 @@ class WebApplication:
                     text = traceback.format_exc()
                     return Response(status=400, text=f"Error in post-processing of response: {e}\n{text}")
                 return response
+            except (CancelledError, ConnectionResetError, ClientConnectionError):
+                if api.is_instance_method:
+                    self_id = request.query['self']
+                    instance = cls.ObjectRepo.instances.get(self_id)
+                    api.on_disonnect(instance)
+                else:
+                    api.on_diconnect()
+                raise
             except BaseException as e:
                 text = traceback.format_exc()
                 return Response(status=500, reason=f"Server error: {e}",
@@ -844,11 +854,15 @@ class WebApplication:
                 try:
                     # iterate to get the one (and hopefully only) yielded element:
                     # noinspection PyTypeChecker
+                    count = 0
                     async for res in awaitable:
                         serialized = _serialize_return_value(res, encoding)
                         if isinstance(res, str):
                             serialized += b'\0'
                         await response.write(serialized)
+                        count += 1
+                except (CancelledError, ConnectionResetError, ClientConnectionError):
+                    raise
                 except Exception as e:
                     print(str(e))
                     await async_q.put(None)
@@ -885,6 +899,8 @@ class WebApplication:
             return Response(status=400, text=f"Improperly formatted query: {str(e)}")
         except HTTPException as e:
             return Response(status=e.status_code, text=str(e))
+        except (CancelledError, ConnectionResetError, ClientConnectionError):
+            raise
         except Exception as e:
             text = f"Exception: {e}\n {traceback.format_exc()}"
             return Response(status=500, text=text)

@@ -211,22 +211,34 @@ class WebInterface(ABC):
                 async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
                     async with session.get(url) as resp:
                         resp.raise_for_status()
+                        buffer = ""
                         async for data, _ in resp.content.iter_chunks():
                             if data:
-                                if api.return_type == str and data[-1] == 0:
-                                    data = data[:-1]
-                                data = data.decode('utf-8')
-                                yield conversions.from_str(data, api.return_type)
+                                if api.return_type == str:
+                                    buffer += data.decode('utf-8')
+                                    *data_items, buffer = buffer.split('\0')
+                                    for datum in data_items:
+                                        yield conversions.from_str(datum, api.return_type)
+                                else:
+                                    data = data.decode('utf-8')
+                                    yield conversions.from_str(data, api.return_type)
             else:
                 payload = json.dumps({conversions.to_str(k): conversions.normalize_to_json_compat(v)
                                       for k, v in kwargs.items()})
                 async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
                     async with session.post(base_url, data=payload) as resp:
+                        buffer = ""
                         async for data, _ in resp.content.iter_chunks():
                             resp.raise_for_status()
                             if data:
-                                data = data.decode('utf-8')
-                                yield conversions.from_str(data, api.return_type)
+                                if api.return_type == str:
+                                    buffer += data.decode('utf-8')
+                                    *data_items, buffer = buffer.split('\0')
+                                    for datum in data_items:
+                                        yield conversions.from_str(datum, api.return_type)
+                                else:
+                                    data = data.decode('utf-8')
+                                    yield conversions.from_str(data, api.return_type)
 
         setattr(clazz, name, class_method_streamed)
 
@@ -300,12 +312,17 @@ class WebInterface(ABC):
                 async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
                     async with session.get(url) as resp:
                         resp.raise_for_status()
+                        buffer = ""
                         async for data, _ in resp.content.iter_chunks():
                             if data:
-                                if api.return_type == str and data[-1] == 0:
-                                    data = data[:-1]
-                                data = data.decode('utf-8')
-                                yield conversions.from_str(data, api.return_type)
+                                if api.return_type == str:
+                                    buffer += data.decode('utf-8')
+                                    *data_items, buffer = buffer.split('\0')
+                                    for datum in data_items:
+                                        yield conversions.from_str(datum, api.return_type)
+                                else:
+                                    data = data.decode('utf-8')
+                                    yield conversions.from_str(data, api.return_type)
             else:
                 url = f"{base_url}?self={self.self_id}"
                 kwargs_['self'] = self.self_id
@@ -313,12 +330,17 @@ class WebInterface(ABC):
                 async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
                     async with session.post(url, data=payload) as resp:
                         resp.raise_for_status()
+                        buffer = ""
                         async for data, _ in resp.content.iter_chunks():
                             if data:
-                                if api.return_type == str and data[-1] == 0:
-                                    data = data[:-1]
-                                data = data.decode('utf-8')
-                                yield conversions.from_str(data, api.return_type)
+                                if api.return_type == str:
+                                    buffer += data.decode('utf-8')
+                                    *data_items, buffer = buffer.split('\0')
+                                    for datum in data_items:
+                                        yield conversions.from_str(datum, api.return_type)
+                                else:
+                                    data = data.decode('utf-8')
+                                    yield conversions.from_str(data, api.return_type)
         setattr(clazz, name, instance_method_streamed)
 
     # noinspection PyPep8Naming

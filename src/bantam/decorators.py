@@ -18,6 +18,7 @@ PostProcessor = Callable[[Union[Response, StreamResponse]], Union[Response, Stre
 def web_api(content_type: str, method: RestMethod = RestMethod.GET,
             is_constructor: bool = False,
             expire_obj: bool = False,
+            on_disconnect: Optional[Callable[[], None]] = None,
             timeout: Optional[ClientTimeout] = None,
             uuid_param: Optional[str] = None,
             preprocess: Optional[PreProcessor] = None,
@@ -45,6 +46,8 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
     :param method: one of MethodEnum rest api methods (GET or POST)
     :param is_constructor: set to True if API is static method return a class instnace, False oherwise (default)
     :param expire_obj: for instance methods only, epxire the object upon successful completion of that call
+    :param on_disconnect: callback if client disconnects unexpectedly
+    :param timeout: optional timeout value for response to request to timeout
     :return: callable decorator
     """
     from .http import WebApplication
@@ -82,6 +85,7 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
                                             content_type=content_type,
                                             is_constructor=is_constructor,
                                             expire_on_exit=expire_obj,
+                                            on_disconnect=on_disconnect,
                                             uuid_param=uuid_param,
                                             preprocess=preprocess,
                                             postprocess=postprocess)

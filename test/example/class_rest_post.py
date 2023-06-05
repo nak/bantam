@@ -1,6 +1,9 @@
 import asyncio
 from abc import abstractmethod
+from concurrent.futures import CancelledError
 from typing import Optional, Dict, AsyncIterator, List
+
+import aiohttp
 
 from bantam.api import RestMethod, AsyncLineIterator
 from bantam.client import WebInterface
@@ -130,6 +133,7 @@ class RestAPIExampleAsyncPost(RestAPIExampleAsyncPostInterface):
     HTTP resource for testing ReST examples, with all static methods
     """
     result_queue: Optional[asyncio.Queue] = None
+    disconnected = False
 
     def __init__(self, val: int):
         self._val = val
@@ -235,7 +239,10 @@ class RestAPIExampleAsyncPost(RestAPIExampleAsyncPostInterface):
         for _ in range(count):
             yield self._val
 
-    @web_api(content_type='text/plain', method=RestMethod.POST)
+    def _disconnected(self):
+        self.__class__.disconnected = True
+
+    @web_api(content_type='text/plain', method=RestMethod.POST, on_disconnect=_disconnected)
     async def my_value_repeated_string(self, count: int) -> AsyncIterator[str]:
         for _ in range(count):
-            yield str(self._val)
+            yield str(self._val)*65537

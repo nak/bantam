@@ -17,10 +17,12 @@ class API:
     def __init__(self, clazz, func, method: RestMethod, content_type: str, is_instance_method: bool,
                  is_class_method: bool,
                  is_constructor: bool,
+                 on_disconnect: Optional[Callable[[], None]] = None,
                  timeout: Optional[ClientTimeout] = None,
                  expire_on_exit: bool = False, uuid_param: Optional[str] = None):
         annotations = func.__annotations__
         self._clazz = clazz
+        self._on_disconnect = on_disconnect
         self._is_class_method = is_class_method
         self._is_instance_method = is_instance_method
         self._is_static = not self._is_class_method and not self._is_instance_method
@@ -99,6 +101,10 @@ class API:
     @property
     def method(self):
         return self._method
+
+    @property
+    def on_disonnect(self):
+        return self._on_disconnect
 
     @property
     def is_instance_method(self) -> bool:
