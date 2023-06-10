@@ -239,7 +239,8 @@ class RestAPIExampleAsyncPost(RestAPIExampleAsyncPostInterface):
         for _ in range(count):
             yield self._val
 
-    def _disconnected(self):
+    async def _disconnected(self, item: int):
+        assert item == str(self._val) * 65537
         self.__class__.disconnected = True
 
     @web_api(content_type='text/plain', method=RestMethod.POST, on_disconnect=_disconnected)

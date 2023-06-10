@@ -103,7 +103,7 @@ class API:
         return self._method
 
     @property
-    def on_disonnect(self):
+    def on_disconnect(self):
         return self._on_disconnect
 
     @property

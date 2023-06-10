@@ -11,6 +11,7 @@ class RestAPIExampleAsyncPostInheritedInterface(WebInterface):
     """
     HTTP resource for testing ReST examples, with all static methods (interface definition)
     """
+    disconnected = False
 
     @classmethod
     @web_api(content_type='text/plain', method=RestMethod.POST, is_constructor=True, )
@@ -124,6 +125,14 @@ class RestAPIExampleAsyncPostInheritedInterface(WebInterface):
         raise NotImplemented
         yield None
 
+    @web_api(content_type='text/plain', method=RestMethod.POST)
+    @abstractmethod
+    async def my_value_repeated_string_disconnected(self, count: int) -> AsyncIterator[str]:
+        """
+        """
+        raise NotImplemented
+        yield None
+
 
 class RestAPIExampleAsyncPostInherited(RestAPIExampleAsyncPostInheritedInterface):
     """
@@ -229,3 +238,12 @@ class RestAPIExampleAsyncPostInherited(RestAPIExampleAsyncPostInheritedInterface
     async def my_value_repeated_string(self, count: int) -> AsyncIterator[str]:
         for _ in range(count):
             yield str(self._val)
+
+    def _disconnected(self, item: int):
+        assert item == str(self._val) * 65537
+        RestAPIExampleAsyncPostInheritedInterface.disconnected = True
+
+    @web_api(content_type='text/plain', method=RestMethod.POST, on_disconnect=_disconnected)
+    async def my_value_repeated_string_disconnected(self, count: int) -> AsyncIterator[str]:
+        for _ in range(count):
+            yield str(self._val)*65537

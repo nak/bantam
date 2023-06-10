@@ -119,3 +119,26 @@ async def test_client_instance_method_streamed_str(tmpdir):
         task.cancel()
         with suppress(CancelledError):
             await task
+
+
+@pytest.mark.asyncio
+async def test_client_instance_method_streamed_str_disconnected(tmpdir):
+    from class_rest_inherit_apis import RestAPIExampleAsyncPostInheritedInterface
+    app = WebApplication(static_path=Path(tmpdir), js_bundle_name='generated', using_async=False)
+    task = asyncio.create_task(app.start(host='localhost', port=PORT, modules=['class_rest_inherit_apis']))
+    try:
+        await asyncio.sleep(1)
+        Client = RestAPIExampleAsyncPostInheritedInterface.ClientEndpointMapping()[f'http://localhost:{PORT}/']
+        instance = await Client.explicit_constructor(29)
+        count = 0
+        async for item in instance.my_value_repeated_string_disconnected(200):
+            assert item == str(29)*65537
+            count += 1
+            if count == 121:
+                break  # disconnects client
+        await asyncio.sleep(1)  # give server time to process disconnect
+        assert RestAPIExampleAsyncPostInheritedInterface.disconnected
+    finally:
+        task.cancel()
+        with suppress(CancelledError):
+            await task

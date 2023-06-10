@@ -603,12 +603,6 @@ class WebApplication:
                     return Response(status=400, text=f"Error in post-processing of response: {e}\n{text}")
                 return response
             except (CancelledError, ConnectionResetError, ClientConnectionError):
-                if api.is_instance_method:
-                    self_id = request.query['self']
-                    instance = cls.ObjectRepo.instances.get(self_id)
-                    api.on_disonnect(instance)
-                else:
-                    api.on_diconnect()
                 raise
             except BaseException as e:
                 text = traceback.format_exc()
@@ -695,10 +689,21 @@ class WebApplication:
                     # iterate to get the one (and hopefully only) yielded element:
                     # noinspection PyTypeChecker
                     async for res in result:
-                        serialized = _serialize_return_value(res, encoding)
-                        if not isinstance(res, bytes):
-                            serialized += b'\0'
-                        await response.write(serialized)
+                        try:
+                            serialized = _serialize_return_value(res, encoding)
+                            if not isinstance(res, bytes):
+                                serialized += b'\0'
+                            await response.write(serialized)
+                        except (CancelledError, ConnectionResetError, ClientConnectionError):
+                            if api.on_disconnect is not None:
+                                if inspect.iscoroutinefunction(api.on_disconnect):
+                                    await api.on_disconnect(res)
+                                else:
+                                    api.on_disconnect(res)
+                            raise
+
+                except (CancelledError, ConnectionResetError, ClientConnectionError):
+                    raise
                 except Exception as e:
                     print(str(e))
                     raise asyncio.CancelledError(f"Error in server-side logic: {e}") from e
@@ -856,11 +861,21 @@ class WebApplication:
                     # noinspection PyTypeChecker
                     count = 0
                     async for res in awaitable:
-                        serialized = _serialize_return_value(res, encoding)
-                        if not isinstance(res, bytes):
-                            serialized += b'\0'
-                        await response.write(serialized)
-                        count += 1
+                        try:
+                            serialized = _serialize_return_value(res, encoding)
+                            if not isinstance(res, bytes):
+                                serialized += b'\0'
+                            await response.write(serialized)
+                            count += 1
+                        except (CancelledError, ConnectionResetError, ClientConnectionError):
+                            if api.on_disconnect is not None:
+                                args = (instance, res, ) if api.is_instance_method else (res, )
+                                if inspect.iscoroutinefunction(api.on_disconnect):
+                                    await api.on_disconnect(*args)
+                                else:
+                                    api.on_disconnect(*args)
+                            raise
+
                 except (CancelledError, ConnectionResetError, ClientConnectionError):
                     raise
                 except Exception as e:
