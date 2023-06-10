@@ -7,7 +7,7 @@ from bantam.client import WebInterface
 from bantam.decorators import web_api
 
 
-class RestAPIExampleAsyncInterface(WebInterface):
+class RestAPIExampleErrorAsyncInterface(WebInterface):
     """
     HTTP resource for testing ReST examples, with all static methods (interface definition)
     """
@@ -41,7 +41,7 @@ class RestAPIExampleAsyncInterface(WebInterface):
         """
 
 
-class RestAPIExampleAsync(RestAPIExampleAsyncInterface):
+class RestAPIExampleErrorAsync(RestAPIExampleErrorAsyncInterface):
     """
     HTTP resource for testing ReST examples, with all static methods
     """

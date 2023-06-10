@@ -84,8 +84,9 @@ One can then declare a Client that acts as a proxy to make calls to the server, 
 http protocol details hidden (abstracted away frm the user):
 
 >>>  def async_call():
-...      client = MyServerApiInterface.Client(end_point='https://blahblahblah')
-...      instance = await client.constructor()
+...      client_end_point_mapping = MyServerApiInterface.ClientEndpointMapping()
+...      client = await client_end_point_mapping['https://blahblahblah']
+...      instance = client.constructor()
 ...      async for text in instance.instance_method_api():
 ...          print(text)
 ...
@@ -99,7 +100,7 @@ import inspect
 import json
 from abc import ABC
 from functools import wraps
-from typing import Any, Dict, TypeVar, Optional, Type, AsyncIterator, Generic
+from typing import Any, Dict, TypeVar, Optional, Type, AsyncIterator, Generic, Mapping, Iterator
 
 import aiohttp
 
@@ -214,7 +215,7 @@ class WebInterface(ABC):
                         buffer = ""
                         async for data, _ in resp.content.iter_chunks():
                             if data:
-                                if api.return_type == str:
+                                if api.return_type != bytes:
                                     buffer += data.decode('utf-8')
                                     *data_items, buffer = buffer.split('\0')
                                     for datum in data_items:
@@ -231,7 +232,7 @@ class WebInterface(ABC):
                         async for data, _ in resp.content.iter_chunks():
                             resp.raise_for_status()
                             if data:
-                                if api.return_type == str:
+                                if api.return_type != bytes:
                                     buffer += data.decode('utf-8')
                                     *data_items, buffer = buffer.split('\0')
                                     for datum in data_items:
@@ -315,7 +316,7 @@ class WebInterface(ABC):
                         buffer = ""
                         async for data, _ in resp.content.iter_chunks():
                             if data:
-                                if api.return_type == str:
+                                if api.return_type != bytes:
                                     buffer += data.decode('utf-8')
                                     *data_items, buffer = buffer.split('\0')
                                     for datum in data_items:
@@ -333,7 +334,7 @@ class WebInterface(ABC):
                         buffer = ""
                         async for data, _ in resp.content.iter_chunks():
                             if data:
-                                if api.return_type == str:
+                                if api.return_type != bytes:
                                     buffer += data.decode('utf-8')
                                     *data_items, buffer = buffer.split('\0')
                                     for datum in data_items:
@@ -345,8 +346,8 @@ class WebInterface(ABC):
 
     # noinspection PyPep8Naming
     @classmethod
-    def Client(cls: C, end_point: str, impl_name: Optional[str] = None,
-               common_headers: Optional[dict] = None) -> C:
+    def ClientEndpointMapping(cls: C, impl_name: Optional[str] = None,
+                              common_headers: Optional[dict] = None) -> Mapping[str, C]:
         if cls == WebInterface:
             raise Exception("Must call Client with concrete class of WebInterface, not WebInterface itself")
         if impl_name is None:
@@ -354,58 +355,77 @@ class WebInterface(ABC):
                 raise Exception("Call to Client must specify impl_name explicitly since class name does not end in "
                                 "'Interface'")
             impl_name = cls.__name__[:-len('Interface')]
-        while end_point.endswith('/'):
-            end_point = end_point[:-1]
-        key = f"{cls.__name__}.{end_point}"
-        if key in WebInterface._clients:
-            return WebInterface._clients[key]
 
-        class Impl:
+        class ClientFactory(Mapping[str, C]):
 
-            def __init__(self, self_id: str):
-                super().__init__()
-                self._id = self_id
+            def __iter__(self) -> Iterator[str]:
+                for key in [k for k in WebInterface._clients if k.startswith(cls.__name__)]:
+                    yield key
 
-            @property
-            def self_id(self):
-                return self._id
+            def __len__(self) -> int:
+                return len([k for k in WebInterface._clients if k.startswith(cls.__name__)])
 
-        non_class_methods = inspect.getmembers(cls, predicate=inspect.isfunction)
-        for name, method in non_class_methods:
-            if isinstance(inspect.getattr_static(cls, name), staticmethod):
-                if hasattr(method, '_bantam_web_api'):
-                    raise Exception(f"Static method {name} of {cls.__name__} cannot have @web_api decorator. "
-                                    "WebInterface's can only have instance and class methods that are @web_api's")
-                continue
-            if not inspect.iscoroutinefunction(method) and not inspect.isasyncgenfunction(method):
-                raise Exception(f"Function {name} of {cls.__name__} is not async as expected.")
-            if isinstance(inspect.getattr_static(cls, name), staticmethod):
-                raise Exception(f"Method {name} of {cls.__name__}")
-            else:
-                if inspect.isasyncgenfunction(method):
-                    cls._add_instance_method_streamed(Impl, impl_name, end_point, method, common_headers)
-                else:
-                    cls._add_instance_method(Impl, impl_name, end_point, method, common_headers)
+            @staticmethod
+            def add_dynamic_methods(clazz: Type, end_point: str):
 
-        class_methods = inspect.getmembers(cls, predicate=inspect.ismethod)
-        for name, method in class_methods:
-            if name == 'Client' or name.startswith('_'):
-                continue
-            if not inspect.iscoroutinefunction(method) and not inspect.isasyncgenfunction(method):
-                raise Exception(f"Function {name} of {cls.__name__} is not async as expected.")
-            if inspect.isasyncgenfunction(method):
-                cls._add_class_method_streamed(Impl, impl_name, end_point, method, common_headers)
-            else:
-                cls._add_class_method(Impl, impl_name, end_point, method, common_headers)
+                non_class_methods = inspect.getmembers(cls, predicate=inspect.isfunction)
+                for name, method in non_class_methods:
+                    if isinstance(inspect.getattr_static(cls, name), staticmethod):
+                        if hasattr(method, '_bantam_web_api'):
+                            raise Exception(
+                                f"Static method {name} of {cls.__name__} cannot have @web_api decorator. "
+                                "WebInterface's can only have instance and class methods that are @web_api's")
+                        continue
+                    if not inspect.iscoroutinefunction(method) and not inspect.isasyncgenfunction(method):
+                        raise Exception(f"Function {name} of {cls.__name__} is not async as expected.")
+                    if isinstance(inspect.getattr_static(cls, name), staticmethod):
+                        raise Exception(f"Method {name} of {cls.__name__}")
+                    else:
+                        if inspect.isasyncgenfunction(method):
+                            cls._add_instance_method_streamed(clazz, impl_name, end_point, method, common_headers)
+                        else:
+                            cls._add_instance_method(clazz, impl_name, end_point, method, common_headers)
 
-        class ImplProper(Impl, Generic[C]):
-            """
-            provides proper typing on return value, without conflicting with Python's abstract class rules
-            which ignore dynamically added methods as above for the concrete implementations
-            """
+                class_methods = inspect.getmembers(cls, predicate=inspect.ismethod)
+                for name, method in class_methods:
+                    if name == cls.ClientEndpointMapping.__name__ or name.startswith('_'):
+                        continue
+                    if not inspect.iscoroutinefunction(method) and not inspect.isasyncgenfunction(method):
+                        raise Exception(f"Function {name} of {cls.__name__} is not async as expected.")
+                    if inspect.isasyncgenfunction(method):
+                        cls._add_class_method_streamed(clazz, impl_name, end_point, method, common_headers)
+                    else:
+                        cls._add_class_method(clazz, impl_name, end_point, method, common_headers)
 
-            def __init__(self, *args, **kwargs):
-                Impl.__init__(self, *args, **kwargs)
+            def __getitem__(self, end_point: str):
+                class Impl:
 
-        WebInterface._clients[key] = ImplProper[C]
-        return ImplProper[C]
+                    def __init__(self, self_id: str):
+                        super().__init__()
+                        self._id = self_id
+
+                    @property
+                    def self_id(self):
+                        return self._id
+
+                class ImplProper(Impl, Generic[C]):
+                    """
+                    provides proper typing on return value, without conflicting with Python's abstract class rules
+                    which ignore dynamically added methods as above for the concrete implementations
+                    """
+
+                    def __init__(self, *args, **kwargs):
+                        Impl.__init__(self, *args, **kwargs)
+
+                while end_point.endswith('/'):
+                    end_point = end_point[:-1]
+                key = f"{cls.__name__}@{end_point}"
+                if key in WebInterface._clients:
+                    return WebInterface._clients[key]
+
+                if key not in WebInterface._clients:
+                    ClientFactory.add_dynamic_methods(Impl, end_point)
+                    WebInterface._clients[key] = ImplProper
+                return WebInterface._clients[key]
+
+        return ClientFactory()

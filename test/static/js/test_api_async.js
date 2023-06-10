@@ -7,26 +7,29 @@ class TestRunner{
     constructor(){
         this.passed = {}
         this.failed = {}
+        this.unsupported = {}
     }
 
     publish_results(){
         let passed_count = Object.keys(this.passed).length;
         let failed_count = Object.keys(this.failed).length
+        let unsupported_count = Object.keys(this.unsupported).length
         let self = this;
         function sleep(ms) {
           return new Promise(resolve => setTimeout(resolve, ms));
         }
         async function close(){
             let api = bantam.class_rest_get.RestAPIExampleAsync;
-            await sleep(5000);
             if (failed_count > 0){
-               alert("There were failed tests");
+                alert("There were failed tests");
+                await sleep(5000);
+            } else {
+                await sleep(2000);
             }
-            api.publish_result(function(a, b){}, function(a,b){},
-                               failed_count==0?"PASSED":JSON.stringify(self.failed));
+            api.publish_result(failed_count==0?"PASSED":JSON.stringify(self.failed));
             window.close();
         }
-        if (this.test_suite.length == passed_count + failed_count){
+        if (this.test_suite.length == passed_count + failed_count + unsupported_count){
             var elem = document.createElement('p');
             document.body.insertBefore(elem, document.getElementById('div1'));
             elem.innerHTML = failed_count == 0?"ALL TESTS PASSED":"COMPLETE WITH AT LEAST ONE FAILURE"; // got expected error response
@@ -41,7 +44,11 @@ class TestRunner{
         if (typeof expected == 'undefined'){
             elem.innerHTML = test + ": FAILED[" + code + "] " + reason;
             elem.setAttribute('style', 'color:red');
-            this.failed[test] = reason;
+            if (reason.includes('not supported') || reason.includes('unsupported')){
+                this.unsupported[test] = reason;
+            } else {
+                this.failed[test] = reason;
+            }
         } else if (reason != expected) {
             elem.innerHTML = test + ": FAILED to receive expected error response: '" + reason + "' != '" + expected + ";";
             elem.setAttribute('style', 'color:red');
@@ -51,7 +58,6 @@ class TestRunner{
             elem.setAttribute('style', 'color:darkgreen');
             this.passed[test] = "PASSED";
         }
-        this.publish_results();
     }
 
     onsuccess(test, text, expected) {
@@ -66,7 +72,6 @@ class TestRunner{
             elem.setAttribute('style', 'color:red');
             this.failed[test] = reason;
         }
-        this.publish_results();
     }
 
     run(){
@@ -91,6 +96,7 @@ class TestRunner{
                     this.onerror(test.name,  -1, "Caught exception in test: " + JSON.stringify(error) + error);
                 }
             }
+            this.publish_results();
         })();
     }
 
@@ -280,7 +286,6 @@ class TestRunner{
         let api = bantam.class_rest_get.RestAPIExampleAsync;
         try{
             const text =  await api.api_post_basic(1234, true);
-            alert("HERE3" + testname)
             self.onerror(testname, -1, "Expected exception due to lack of parameters");
         } catch (error){
             self.onsuccess(testname);

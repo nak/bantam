@@ -49,16 +49,16 @@ class TestJavascriptGenerator:
                     browser = webbrowser.get()
             if not browser:
                 os.write(sys.stderr.fileno(),
-                         b"UNABLE TO GET BROWSER SUPPORINT HEADLESS CONFIGURATION. DEFAULTING TO NON_HEADLESSS")
+                         b"UNABLE TO GET BROWSER SUPPORT IN HEADLESS CONFIGURATION. DEFAULTING TO NON_HEADLESS")
                 browser = webbrowser.get()
-            browser.open("http://localhost:8080/static/index_async.html")
+            browser.open("http://localhost:8081/static/index_async.html")
             result = await RestAPIExampleAsync.result_queue.get()
             await asyncio.sleep(2.0)
             await app.shutdown()
             return result
 
         try:
-            completed, _ = await asyncio.wait([app.start(modules=['class_rest_get']),
+            completed, _ = await asyncio.wait([app.start(modules=['class_rest_get'], port=8081),
                                                launch_browser()], timeout=100000, return_when=asyncio.FIRST_COMPLETED)
             results = [c.result() for c in completed if c is not None]
         except Exception as e:

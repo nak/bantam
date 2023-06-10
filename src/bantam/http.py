@@ -696,7 +696,7 @@ class WebApplication:
                     # noinspection PyTypeChecker
                     async for res in result:
                         serialized = _serialize_return_value(res, encoding)
-                        if isinstance(res, str):
+                        if not isinstance(res, bytes):
                             serialized += b'\0'
                         await response.write(serialized)
                 except Exception as e:
@@ -857,7 +857,7 @@ class WebApplication:
                     count = 0
                     async for res in awaitable:
                         serialized = _serialize_return_value(res, encoding)
-                        if isinstance(res, str):
+                        if not isinstance(res, bytes):
                             serialized += b'\0'
                         await response.write(serialized)
                         count += 1

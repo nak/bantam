@@ -7,7 +7,7 @@ from bantam.client import WebInterface
 from bantam.decorators import web_api
 
 
-class RestAPIExampleAsyncPostInterface(WebInterface):
+class RestAPIExampleAsyncPostInheritedInterface(WebInterface):
     """
     HTTP resource for testing ReST examples, with all static methods (interface definition)
     """
@@ -15,7 +15,7 @@ class RestAPIExampleAsyncPostInterface(WebInterface):
     @classmethod
     @web_api(content_type='text/plain', method=RestMethod.POST, is_constructor=True, )
     @abstractmethod
-    async def explicit_constructor(cls, val: int) -> "RestAPIExampleAsyncPost":
+    async def explicit_constructor(cls, val: int) -> "RestAPIExampleAsyncPostInherited":
         """
         constructor
         """
@@ -125,7 +125,7 @@ class RestAPIExampleAsyncPostInterface(WebInterface):
         yield None
 
 
-class RestAPIExampleAsyncPost(RestAPIExampleAsyncPostInterface):
+class RestAPIExampleAsyncPostInherited(RestAPIExampleAsyncPostInheritedInterface):
     """
     HTTP resource for testing ReST examples, with all static methods
     """
@@ -135,8 +135,8 @@ class RestAPIExampleAsyncPost(RestAPIExampleAsyncPostInterface):
         self._val = val
 
     @classmethod
-    async def explicit_constructor(cls, val: int) -> "RestAPIExampleAsyncPost":
-        return RestAPIExampleAsyncPost(val)
+    async def explicit_constructor(cls, val: int) -> "RestAPIExampleAsyncPostInherited":
+        return RestAPIExampleAsyncPostInherited(val)
 
     @classmethod
     async def api_post_basic(cls, param1: int, param2: bool, param3: float, param4: str = "text",
@@ -217,7 +217,7 @@ class RestAPIExampleAsyncPost(RestAPIExampleAsyncPostInterface):
 
     @classmethod
     async def publish_result(cls, result: str) -> None:
-        await RestAPIExampleAsyncPost.result_queue.put(result)
+        await RestAPIExampleAsyncPostInherited.result_queue.put(result)
 
     async def my_value(self) -> int:
         return self._val
