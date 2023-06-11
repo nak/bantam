@@ -105,6 +105,7 @@ class RestAPIExample:
         """
         for index in range(10):
             yield index
+            print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> {index}")
             await asyncio.sleep(0.02)
 
     @classmethod
@@ -136,6 +137,7 @@ class RestAPIExample:
         """
         for index in range(10):
             yield f"COUNT: {index}"
+            print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> COUNT {index}")
             await asyncio.sleep(0.02)
         yield "DONE"
 

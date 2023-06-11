@@ -39,6 +39,8 @@ from typing import (
     Type,
 )
 
+from asynciomultiplexer import asynciomultiplexer
+
 from . import HTTPException
 from .conversions import from_str, to_str, normalize_from_json
 from .decorators import (
@@ -83,6 +85,36 @@ class WebApplication:
     _instance_methods: List[API] = []
     _all_methods: List[API] = []
 
+    class MainThread:
+        """
+        This is used to "undo" the threading in aiohttp.  It seems silly to combine threading and asyncio
+        by handling each request in its own response.  It is somewhat understandable to attempt to
+        de-conflict state perhaps(?), but overall is just silly IMHO.  This thread puts all invocations
+        of routes into one thread handle a main asyncio loop.  User needs to beware of stateful-ness in that
+        one asyncio task can change the state while another is in the middle of being awaited (but threading
+        really doesn't solve this anyway).
+        """
+        MAX_SIMULTANEOUS_REQUESTS = 1000
+
+        request_q = asynciomultiplexer.AsyncAdaptorQueue(MAX_SIMULTANEOUS_REQUESTS)
+
+        @classmethod
+        async def start(cls, coro: Awaitable, resp_q: asynciomultiplexer.AsyncAdaptorQueue):
+            await cls.request_q.put((coro, resp_q))
+
+        @classmethod
+        async def main(cls):
+            async def task(coro: Awaitable, resp_q: asynciomultiplexer.AsyncAdaptorQueue):
+                try:
+                    resp = await coro
+                except Exception as e:
+                    resp = e
+                await resp_q.put(resp)
+
+            while True:
+                request = await cls.request_q.get(polling_interval=0.01)
+                asyncio.create_task(task(*request))
+
     class ObjectRepo:
         DEFAULT_OBJECT_EXPIRATION: int = 60*60*2   # in seconds = 1 hour
 
@@ -121,6 +153,7 @@ class WebApplication:
                  client_max_size: int = MAX_CLIENTS,
                  using_async: bool = True,
                  debug: Any = ..., ) -> None:  # mypy doesn't support ellipsis
+        self._main_task: Optional[asyncio.Task] = None
         if static_path is not None and not Path(static_path).exists():
             raise ValueError(f"Provided static path, {static_path} does not exist")
         self._static_path = static_path
@@ -343,6 +376,7 @@ class WebApplication:
             on Windows.
         """
         # noinspection PyProtectedMember
+        self._main_task = asyncio.create_task(self.MainThread.main())
         from aiohttp.web import _run_app as web_run_app
         for module in modules:
             self.preprocess_module(module)
@@ -401,7 +435,10 @@ class WebApplication:
         """
         Shutdown this server
         """
+        if self._main_task is not None:
+            self._main_task.cancel()
         if self._started:
+
             await self._web_app.shutdown()
             self._started = False
 
@@ -575,39 +612,55 @@ class WebApplication:
             return func
 
         async def invoke(app: WebApplication, request: Request):
-            nonlocal preprocess, postprocess
-            try:
-                preprocess = preprocess or app.preprocessor
+
+            async def invoke_proper():
+                nonlocal preprocess, postprocess
+                print(f">>>>>>>>>>>>>> INVOKING {api.name}")
                 try:
-                    addl_args = (preprocess(request) or {}) if preprocess else {}
-                except Exception as e:
+                    preprocess = preprocess or app.preprocessor
+                    try:
+                        addl_args = (preprocess(request) or {}) if preprocess else {}
+                    except Exception as e:
+                        text = traceback.format_exc()
+                        resp = Response(status=400, text=f"Error in preprocessing request: {e}\n{text}")
+                        await resp.prepare(request)
+                        return resp
+                    if method == RestMethod.GET:
+                        # noinspection PyProtectedMember
+                        response = await cls._invoke_get_api_wrapper(
+                            api, content_type=content_type, request=request, **addl_args
+                        )
+                    elif method == RestMethod.POST:
+                        # noinspection PyProtectedMember
+                        response = await cls._invoke_post_api_wrapper(
+                            api, content_type=content_type, request=request, **addl_args
+                        )
+                    else:
+                        raise ValueError(f"Unknown method {method} in @web-api")
+                    try:
+                        postprocess = postprocess or app.postprocessor
+                        postprocess(response) if postprocess else response
+                    except Exception as e:
+                        text = traceback.format_exc()
+                        resp = Response(status=400, text=f"Error in post-processing of response: {e}\n{text}")
+                        await resp.prepare(request)
+                        return resp
+                    return response
+                except (CancelledError, ConnectionResetError, ClientConnectionError):
+                    raise
+                except BaseException as e:
                     text = traceback.format_exc()
-                    return Response(status=400, text=f"Error in preprocessing request: {e}\n{text}")
-                if method == RestMethod.GET:
-                    # noinspection PyProtectedMember
-                    response = await cls._invoke_get_api_wrapper(
-                        api, content_type=content_type, request=request, **addl_args
-                    )
-                elif method == RestMethod.POST:
-                    # noinspection PyProtectedMember
-                    response = await cls._invoke_post_api_wrapper(
-                        api, content_type=content_type, request=request, **addl_args
-                    )
-                else:
-                    raise ValueError(f"Unknown method {method} in @web-api")
-                try:
-                    postprocess = postprocess or app.postprocessor
-                    postprocess(response) if postprocess else response
-                except Exception as e:
-                    text = traceback.format_exc()
-                    return Response(status=400, text=f"Error in post-processing of response: {e}\n{text}")
-                return response
-            except (CancelledError, ConnectionResetError, ClientConnectionError):
+                    resp = Response(status=500, reason=f"Server error: {e}",
+                                    body=f"Server error: {e}\n{text}", content_type="test/plain")
+                    await resp.prepare(request)
+                    return resp
+            resp_q = asynciomultiplexer.AsyncAdaptorQueue(1)
+            await cls.MainThread.start(invoke_proper(), resp_q)
+            resp = await resp_q.get()
+            print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> {api.name} RESP WRITE DONE {resp}")
+            if isinstance(resp, Exception):
                 raise
-            except BaseException as e:
-                text = traceback.format_exc()
-                return Response(status=500, reason=f"Server error: {e}",
-                                body=f"Server error: {e}\n{text}", content_type="test/plain")
+            return resp
 
         invoke.clazz = WebApplication._instance_methods_class_map.get(api) if is_instance_method else None
         if method == RestMethod.GET:
@@ -644,10 +697,12 @@ class WebApplication:
                     encoding = item.replace('charset=', '')
             # report first param that doesn't match the Python signature:
             for k in [p for p in request.query if p not in api.arg_annotations and p != 'self']:
-                return Response(
+                resp = Response(
                     status=400,
                     text=f"No such parameter or missing type hint for param {k} in method {api.qualname}"
                 )
+                await resp.prepare(request)
+                return resp
 
             # convert incoming str values to proper type:
             kwargs = {k: _convert_request_param(v, api.arg_annotations[k]) if k != 'self' else v
@@ -732,16 +787,20 @@ class WebApplication:
                         uuid, cls.ObjectRepo.DEFAULT_OBJECT_EXPIRATION))
                 else:
                     result = _serialize_return_value(result, encoding)
-                return Response(status=200, body=result if result is not None else b"Success",
+                resp = Response(status=200, body=result if result is not None else b"Success",
                                 content_type=content_type)
+                await resp.prepare(request)
+                return resp
         except TypeError as e:
-            return Response(status=400, text=f"Improperly formatted query: {str(e)}\n{traceback.format_exc()}")
+            resp = Response(status=400, text=f"Improperly formatted query: {str(e)}\n{traceback.format_exc()}")
+            await resp.prepare(request)
+            return resp
         except HTTPException as e:
-            return Response(status=e.status_code, text=f"{e}: \n{traceback.format_exc()}")
-        except (asyncio.CancelledError, asyncio.TimeoutError):
             raise
         except Exception as e:
-            return Response(status=500, text=f"Exception: {e}: \n{traceback.format_exc()}")
+            resp = Response(status=500, text=f"Exception: {e}: \n{traceback.format_exc()}")
+            await resp.prepare(request)
+            return resp
         finally:
             # noinspection PyUnresolvedReferences,PyProtectedMember
             del cls._context[sys._getframe(0)]
@@ -757,6 +816,7 @@ class WebApplication:
         :param request: request to be processed
         :return: http response object
         """
+
         async def line_by_line_response(req: Request):
             reader = req.content
             chunk = True
@@ -805,10 +865,12 @@ class WebApplication:
                 bytes_response = await request.read()
                 json_dict = json.loads(bytes_response.decode('utf-8'))
                 for k in [p for p in json_dict if p not in api.arg_annotations and p != 'self']:
-                    return Response(
+                    resp = Response(
                         status=400,
                         text=f"No such parameter or missing type hint for param {k} in method {api.qualname}"
                     )
+                    await resp.prepare(request)
+                    return resp
 
                 # convert incoming str values to proper type:
                 kwargs.update(dict(json_dict))
@@ -881,8 +943,12 @@ class WebApplication:
                 except Exception as e:
                     print(str(e))
                     await async_q.put(None)
-                    raise RuntimeError(f"Exception in server-side logic: {e}") from e
+                    resp = Response(status=500, body=f"Exception in server-side logic: {e}",
+                                    content_type='text/plain')
+                    await resp.prepare(request)
+                    return resp
                 await response.write_eof()
+                return response
             else:
                 #################
                 #  regular response
@@ -903,22 +969,32 @@ class WebApplication:
                     cls.ObjectRepo.by_instance[instance] = uuid
                     cls.ObjectRepo.expiry[uuid] = asyncio.create_task(cls.ObjectRepo.expire_obj(
                         uuid, cls.ObjectRepo.DEFAULT_OBJECT_EXPIRATION))
-                    return Response(status=200, body=result if result is not None else b"Success",
+                    resp = Response(status=200, body=result if result is not None else b"Success",
                                     content_type=content_type)
+                    await resp.prepare(request)
+                    return resp
                 else:
                     result = _serialize_return_value(await awaitable, encoding)
-                return Response(status=200, body=result if result is not None else b"Success",
+                resp = Response(status=200, body=result if result is not None else b"Success",
                                 content_type=content_type)
+                await resp.prepare(request)
+                return resp
 
         except TypeError as e:
-            return Response(status=400, text=f"Improperly formatted query: {str(e)}")
+            resp = Response(status=400, text=f"Improperly formatted query: {str(e)}")
+            await resp.prepare(request)
+            return resp
         except HTTPException as e:
-            return Response(status=e.status_code, text=str(e))
+            resp = Response(status=e.status_code, text=str(e))
+            await resp.prepare(request)
+            return resp
         except (CancelledError, ConnectionResetError, ClientConnectionError):
             raise
         except Exception as e:
             text = f"Exception: {e}\n {traceback.format_exc()}"
-            return Response(status=500, text=text)
+            resp = Response(status=500, text=text)
+            await resp.prepare(request)
+            return resp
         finally:
             # noinspection PyUnresolvedReferences,PyProtectedMember
             del cls._context[sys._getframe(0)]

@@ -20,6 +20,7 @@ class TestRunner{
             api.publish_result(function(a, b){}, function(a,b){},
                                failed_count==0?"PASSED":JSON.stringify(self.failed));
             await sleep(5000);
+            api.expire()
             if (failed_count > 0){
                 alert("There were failed tests.");
             }
@@ -152,14 +153,13 @@ class TestRunner{
                 if (line === ''){
                     continue;
                 }
-
                 if (count == 10 && line != 'DONE'){
-                     self.onerror(testname, -1, "Unexpected response: '" + line + "' != 'DONE'");
+                     self.onerror(testname, -1, "Unexpected response: '" + line + "' != 'DONE'\n");
                      error = true;
                      break;
                 }
                 if(count < 10 && line !== 'GET COUNT: ' + count){
-                    self.onerror(testname, -1, "Unexpected response: '" + line + "' != 'GET COUNT: " + count + "'");
+                    self.onerror(testname, -1, "Unexpected response: '" + line + "' != 'GET COUNT: " + count + "'\n");
                     error = true;
                     break;
                 }
@@ -203,6 +203,7 @@ class TestRunner{
                 let is_valid = true;
                 for (var i = 0; i < int_vals.length; ++i){
                     if (i != int_vals[i]){
+                        alert('' + i)
                         is_valid = false;
                     }
                 }
@@ -268,6 +269,5 @@ class TestRunner{
             },
             function(code, reason){self.onerror(testname, code, reason)},
             1234, true, -8721.345);
-        api.expire()
     }
 }

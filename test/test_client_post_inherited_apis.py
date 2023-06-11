@@ -139,6 +139,7 @@ async def test_client_instance_method_streamed_str_disconnected(tmpdir):
         await asyncio.sleep(1)  # give server time to process disconnect
         assert RestAPIExampleAsyncPostInheritedInterface.disconnected
     finally:
+        await app.shutdown()
         task.cancel()
         with suppress(CancelledError):
             await task

@@ -60,7 +60,7 @@ by the class name, in this case *Greetings*, and the method name. Thus, the "wel
 *Greetings* class, is mapped to the route '/Greetings/welcome".  There are some rules about methods declared as
 *@web_api*:
 
-#. They can be @staticmethods, @classmethods or even instance methods (explained below), but @classmethod or
+#. They can be @classmethods or even instance methods (explained below), but @classmethod or
    instance methods are prefered
 #. They must provide all type hints for parameters and return value.  The types must
    be of only specific kinds as explained below
@@ -81,6 +81,15 @@ payload of the request (not query parameters) as a simple JSON dictionary.
 
     Although the code prevents name collisions, the underlying (automated) routes do not, and a route must be unique.
     Thus, each pair of class/method declared as a @web_api must be unique, even across differing modules.
+
+.. caution::
+
+    Batnam invokes all requests in a single thread within the server (and undoes any per-thread model of
+    the underlying http/web package used to conduct the HTTP transactions).  The user needs to be keenly
+    aware of the rules of asyncio. Specifically: (1) do not invoke blocking calls (await calls that yield processing
+    back but take a long time to complete are OK, of course) and (2) understand that if stateful, the state
+    of the server objects can change in the middle of execution if an await is invoked and processing is
+    yielded to another async request from another client call.
 
 """
 
