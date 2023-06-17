@@ -102,4 +102,4 @@ class HTTPException(Exception):
 
     @property
     def status_code(self):
-        return self._code
+        return self._codesud

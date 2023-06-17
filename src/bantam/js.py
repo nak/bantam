@@ -262,11 +262,10 @@ class JavascriptGenerator:
     @classmethod
     def _generate_request(cls, out: IO, route: str, api: API, tab: str):
         func = api._func
-        arg_count = func.__code__.co_argcount
-        if 'self' in func.__code__.co_varnames or 'cls' in func.__code__.co_varnames\
-                or 'this' in func.__code__.co_varnames:
+        sig = inspect.signature(func)
+        arg_count = len(sig.parameters)
+        if 'self' in sig.parameters or 'cls' in sig.parameters or 'this' in sig.parameters:
             arg_count -= 1
-
         if not api.name.startswith('_') and arg_count != len(api.arg_annotations):
             raise Exception(f"Not all arguments of '{api.qualname}' have type hints.  This is required for web_api")
         if api.has_streamed_response is True:

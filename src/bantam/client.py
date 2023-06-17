@@ -144,9 +144,12 @@ class WebInterface(ABC):
                 arg_spec = inspect.getfullargspec(api._func)
             except Exception:
                 arg_spec = inspect.getfullargspec(api._func.__func__)
-            kwargs_.update({
-                arg_spec.args[n + 1]: arg for n, arg in enumerate(args)
-            })
+            if arg_spec.varargs is None:
+                kwargs_.update({
+                    arg_spec.args[n + 1]: arg for n, arg in enumerate(args)
+                })
+            else:
+                kwargs_[arg_spec.varargs] = args
             # noinspection PyBroadException
             rest_method = api._func._bantam_web_api.method
             if rest_method.value == RestMethod.GET.value:

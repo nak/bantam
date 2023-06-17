@@ -22,7 +22,7 @@ async def test_client_class_method(tmpdir):
         await asyncio.sleep(1)
         client = RestAPIExampleAsyncPostInterface.ClientEndpointMapping()
         client = client[f'http://localhost:{PORT}/']
-        response = await client.api_post_basic(42, True, 992.123)
+        response = await client.api_post_basic(1, 2, 4, 5, 6, param1=42, param2=True, param3=992.123)
         assert response == f"Response to test_api_basic 1.0 2"
     finally:
         task.cancel()

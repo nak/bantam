@@ -49,7 +49,7 @@ class RestAPIExampleAsyncInterface(WebInterface):
     @classmethod
     @web_api(content_type='text/plain', method=RestMethod.GET)
     @abstractmethod
-    async def api_get_basic(cls, param1: int, param2: bool, param3: float, param4: str = "text",
+    async def api_get_basic(cls, *varargs: int, param1: int, param2: bool, param3: float, param4: str = "text",
                             param5: Dict[str, float] = {'f1': 1.0, 'f2': 2.0}) -> str:
         """
         Some sort of doc
@@ -194,7 +194,7 @@ class RestAPIExampleAsync(RestAPIExampleAsyncInterface):
 
     @classmethod
     @web_api(content_type='text/plain', method=RestMethod.GET)
-    async def api_get_basic(cls, param1: int, param2: bool, param3: float, param4: str = "text",
+    async def api_get_basic(cls, *varargs: int, param1: int, param2: bool, param3: float, param4: str = "text",
                             param5: Dict[str, float] = {'f1': 1.0, 'f2': 2.0}) -> str:
         """
         Some sort of doc

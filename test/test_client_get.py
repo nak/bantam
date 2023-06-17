@@ -23,7 +23,7 @@ async def test_client_class_method(tmpdir):
         end_point = f'http://localhost:{PORT}/'
         client_mapping = RestAPIExampleAsyncInterface.ClientEndpointMapping()
         Client = client_mapping[end_point]
-        response = await Client.api_get_basic(42, True, 992.123)
+        response = await Client.api_get_basic(1, 2, 3, 4, 5, param1=42, param2=True, param3=992.123)
         assert response == f"Response to test_api_basic 1.0 2"
     finally:
         task.cancel()

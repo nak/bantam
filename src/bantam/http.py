@@ -385,11 +385,11 @@ class WebApplication:
             else:
                 mod = sys.modules.get(module)
             for api in list(self.module_mapping_get.get(module, {}).values()):
-                if api.name in ['_expire']:
+                if api.name in ['_expire', '_create']:
                     continue
                 self._process_module_classes(mod, api)
             for api in self.module_mapping_post.get(module, {}).values():
-                if api.name in ['_expire']:
+                if api.name in ['_expire', '_create']:
                     continue
                 self._process_module_classes(mod, api)
         allowed_get_routes = {}
@@ -615,16 +615,15 @@ class WebApplication:
 
             async def invoke_proper():
                 nonlocal preprocess, postprocess
-                print(f">>>>>>>>>>>>>> INVOKING {api.name}")
                 try:
                     preprocess = preprocess or app.preprocessor
                     try:
                         addl_args = (preprocess(request) or {}) if preprocess else {}
                     except Exception as e:
                         text = traceback.format_exc()
-                        resp = Response(status=400, text=f"Error in preprocessing request: {e}\n{text}")
-                        await resp.prepare(request)
-                        return resp
+                        resp_ = Response(status=400, text=f"Error in preprocessing request: {e}\n{text}")
+                        await resp_.prepare(request)
+                        return resp_
                     if method == RestMethod.GET:
                         # noinspection PyProtectedMember
                         response = await cls._invoke_get_api_wrapper(
@@ -642,22 +641,21 @@ class WebApplication:
                         postprocess(response) if postprocess else response
                     except Exception as e:
                         text = traceback.format_exc()
-                        resp = Response(status=400, text=f"Error in post-processing of response: {e}\n{text}")
-                        await resp.prepare(request)
-                        return resp
+                        resp_ = Response(status=400, text=f"Error in post-processing of response: {e}\n{text}")
+                        await resp_.prepare(request)
+                        return resp_
                     return response
                 except (CancelledError, ConnectionResetError, ClientConnectionError):
                     raise
                 except BaseException as e:
                     text = traceback.format_exc()
-                    resp = Response(status=500, reason=f"Server error: {e}",
-                                    body=f"Server error: {e}\n{text}", content_type="test/plain")
-                    await resp.prepare(request)
-                    return resp
+                    resp_ = Response(status=500, reason=f"Server error: {e}",
+                                     body=f"Server error: {e}\n{text}", content_type="test/plain")
+                    await resp_.prepare(request)
+                    return resp_
             resp_q = asynciomultiplexer.AsyncAdaptorQueue(1)
             await cls.MainThread.start(invoke_proper(), resp_q)
             resp = await resp_q.get()
-            print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> {api.name} RESP WRITE DONE {resp}")
             if isinstance(resp, Exception):
                 raise
             return resp
@@ -719,18 +717,21 @@ class WebApplication:
                 if instance is None:
                     raise ValueError(f"No instance found for request with 'self' id of {self_id}")
                 del kwargs['self']
-                result = api(instance, **kwargs)
+                kwargs, varargs = api.update_varargs(kwargs)
+                result = api(instance, *varargs, **kwargs)
             elif api.is_class_method:
                 if isinstance(api.clazz, tuple):
                     module_name, class_name = api.clazz
                     api._clazz = getattr(sys.modules.get(module_name), class_name)
+                kwargs, varargs = api.update_varargs(kwargs)
                 if 'cls' not in kwargs:
-                    result = api(**kwargs, cls=api.clazz)
+                    result = api(api.clazz, *varargs, **kwargs)
                 else:
-                    result = api(**kwargs)
+                    result = api(*varargs, **kwargs)
             else:
+                kwargs, varargs = api.update_varargs(kwargs)
                 # call the underlying function:
-                result = api(**kwargs)
+                result = api(*varargs, **kwargs)
             if inspect.isasyncgen(result):
                 #################
                 #  streamed response through async generator:
@@ -795,7 +796,7 @@ class WebApplication:
             resp = Response(status=400, text=f"Improperly formatted query: {str(e)}\n{traceback.format_exc()}")
             await resp.prepare(request)
             return resp
-        except HTTPException as e:
+        except HTTPException:
             raise
         except Exception as e:
             resp = Response(status=500, text=f"Exception: {e}: \n{traceback.format_exc()}")
@@ -897,7 +898,8 @@ class WebApplication:
                     except Exception:
                         raise ValueError(f"Error in json representation of an instance: {self_id}")
                 del kwargs['self']
-                awaitable = api(instance, **kwargs)
+                kwargs, varargs = api.update_varargs(kwargs)
+                awaitable = api(instance, *varargs, **kwargs)
                 if api.expire_object:
                     del cls.ObjectRepo.instances[self_id]
             elif api.is_class_method:
@@ -905,9 +907,11 @@ class WebApplication:
                 if isinstance(api.clazz, tuple):
                     module_name, class_name = api.clazz
                     api._clazz = getattr(sys.modules.get(module_name), class_name)
-                awaitable = api(**kwargs, cls=api.clazz)
+                kwargs, varargs = api.update_varargs(kwargs)
+                awaitable = api(api.clazz, *varargs, **kwargs)
             else:
-                awaitable = api(**kwargs)
+                kwargs, varargs = api.update_varargs(kwargs)
+                awaitable = api(*varags, **kwargs)
             if inspect.isasyncgen(awaitable):
                 #################
                 #  streamed response through async generator:

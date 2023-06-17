@@ -1,5 +1,7 @@
+import inspect
+import typing
 from enum import Enum
-from typing import Callable, Awaitable, AsyncGenerator, Dict, List, Optional, Type
+from typing import Callable, Awaitable, AsyncGenerator, Dict, List, Optional, Type, TypeVar
 
 from aiohttp import ClientTimeout
 
@@ -34,6 +36,13 @@ class API:
         if 'return' not in annotations:
             raise TypeError(f"No annotation for return type in {func}")
         self._arg_annotations = {name: typ for name, typ in annotations.items() if name != 'return'}
+        if not func.__name__.startswith('_'):
+            sig = inspect.signature(func)
+            for name in self._arg_annotations:
+                if sig.parameters[name].kind == inspect.Parameter.VAR_POSITIONAL:
+                    self._arg_annotations[name] = typing.Tuple[int, None]
+                elif sig.parameters[name].kind == inspect.Parameter.VAR_KEYWORD:
+                    self._arg_annotations[name] = typing.Dict[str, self._arg_annotations[name]]
         self._async_arg_annotations = {
             name: typ for name, typ in self._arg_annotations.items()
             if typ in (bytes, AsyncChunkIterator, AsyncLineIterator)
@@ -42,10 +51,10 @@ class API:
             raise TypeError("At most one parameter can be and async iterator in a web_api request")
         self._return_type = annotations['return']
         self._has_streamed_response = False
-        if str(self._return_type).startswith('typing.AsyncIterator'):
+        if str(self._return_type).startswith('typing.AsyncIterator') or self._return_type == typing.AsyncIterator:
             self._return_type = self._return_type.__args__[0]
             self._has_streamed_response = True
-        elif str(self._return_type).startswith('typing.AsyncGenerator'):
+        elif str(self._return_type).startswith('typing.AsyncGenerator') or self._return_type == typing.AsyncGenerator:
             self._return_type = self._return_type.__args__[1]
             self._has_streamed_response = True
         self._content_type = content_type if not self.has_streamed_response else 'text/streamed; charset=x-user-defined'
@@ -140,6 +149,22 @@ class API:
 
     def __call__(self, *args, **kwargs):
         return self._func(*args, **kwargs)
+
+    def update_varargs(self, kwargs: Dict[str, typing.Any]) -> [Dict[str, typing.Any], typing.Tuple[typing.Any]]:
+        """
+        takes list of kwargs for the call and transforms as needed for any varargs  or varkwargs in call
+        """
+        sig = inspect.signature(self._func)
+        updated = kwargs
+        varargs = tuple()
+        for name, param in sig.parameters.items():
+            if param.kind == inspect.Parameter.VAR_KEYWORD:
+                del updated[name]
+                updated.update(**kwargs[name])
+            elif param.kind == inspect.Parameter.VAR_POSITIONAL:
+                varargs = kwargs[name]
+                del updated[name]
+        return updated, varargs
 
 
 class APIDoc:
@@ -261,3 +286,10 @@ class APIDoc:
         else:
             # noinspection PyProtectedMember
             return typ.__name__ if hasattr(typ, '__name__') else typ._name if hasattr(typ, '_name') else str(typ)
+
+
+V = TypeVar('V')
+
+
+def raise_is_abstract(v: V = None) -> V:
+    raise NotImplemented(f"Call to abstract function")
