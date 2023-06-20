@@ -103,7 +103,10 @@ class WebApplication:
             await cls.request_q.put((coro, resp_q))
 
         @classmethod
-        async def main(cls):
+        async def main(cls, initializer: Optional[Callable[[], None]] = None):
+            if initializer:
+                initializer()
+
             async def task(coro: Awaitable, resp_q: asynciomultiplexer.AsyncAdaptorQueue):
                 try:
                     resp = await coro
@@ -351,6 +354,7 @@ class WebApplication:
                     host: Optional[str] = None,
                     port: Optional[int] = None,
                     path: Optional[str] = None,
+                    initializer: Optional[Callable[[], None]] = None,
                     shutdown_timeout: float = 60.0,
                     ssl_context: Optional[SSLContext] = None,
                     backlog: int = 128,
@@ -365,6 +369,8 @@ class WebApplication:
         :param host: optional host of app, defaults to '127.0.0.1'
         :param port: optional port to listen on (TCP)
         :param path: path, if using UNIX domain sockets to listen on (cannot specify both TCP and domain parameters)
+        :param initializer: optional function (no params, no return) to call on first bring-up, inside the
+            thread associated with the app's asyncio loop
         :param shutdown_timeout: force shutdown if a shutdown call fails to take hold after this many seconds
         :param ssl_context: for HTTPS server; if not provided, will default to HTTP connection
         :param backlog: number of unaccepted connections before system will refuse new connections
@@ -376,7 +382,7 @@ class WebApplication:
             on Windows.
         """
         # noinspection PyProtectedMember
-        self._main_task = asyncio.create_task(self.MainThread.main())
+        self._main_task = asyncio.create_task(self.MainThread.main(initializer))
         from aiohttp.web import _run_app as web_run_app
         for module in modules:
             self.preprocess_module(module)
@@ -792,14 +798,27 @@ class WebApplication:
                                 content_type=content_type)
                 await resp.prepare(request)
                 return resp
+        except PermissionError as e:
+            resp = Response(status=401,
+                            reason=f"Improperly formatted query: {str(e)}\n{traceback.format_exc()}",
+                            text=f"Improperly formatted query: {str(e)}\n{traceback.format_exc()}",
+                            )
+            await resp.prepare(request)
+            return resp
         except TypeError as e:
-            resp = Response(status=400, text=f"Improperly formatted query: {str(e)}\n{traceback.format_exc()}")
+            resp = Response(status=400,
+                            reason=f"Improperly formatted query: {str(e)}\n{traceback.format_exc()}",
+                            text=f"Improperly formatted query: {str(e)}\n{traceback.format_exc()}",
+                            )
             await resp.prepare(request)
             return resp
         except HTTPException:
             raise
         except Exception as e:
-            resp = Response(status=500, text=f"Exception: {e}: \n{traceback.format_exc()}")
+            resp = Response(status=400,
+                            reason=f"Exception: {e}: \n{traceback.format_exc()}",
+                            text=f"Exception: {e}: \n{traceback.format_exc()}",
+                            )
             await resp.prepare(request)
             return resp
         finally:
@@ -935,6 +954,7 @@ class WebApplication:
                             count += 1
                         except (CancelledError, ConnectionResetError, ClientConnectionError):
                             if api.on_disconnect is not None:
+                                # noinspection PyUnboundLocalVariable
                                 args = (instance, res, ) if api.is_instance_method else (res, )
                                 if inspect.iscoroutinefunction(api.on_disconnect):
                                     await api.on_disconnect(*args)
