@@ -3,6 +3,9 @@ from asyncio import CancelledError
 from contextlib import suppress
 from pathlib import Path
 import sys
+
+from bantam.client import InvocationError
+
 if True:
     sys.path.insert(0, str(Path(__file__).parent / 'example'))
 from pathlib import Path
@@ -117,6 +120,23 @@ async def test_client_instance_method_streamed_str(tmpdir):
             assert item == str(29)
             count += 1
         assert count == 200
+    finally:
+        task.cancel()
+        with suppress(CancelledError):
+            await task
+
+
+@pytest.mark.asyncio
+async def test_client_instance_raises_exception(tmpdir):
+    from class_rest_get import RestAPIExampleAsyncInterface
+    app = WebApplication(static_path=Path(tmpdir), js_bundle_name='generated', using_async=False)
+    task = asyncio.create_task(app.start(host='localhost', port=PORT, modules=['class_rest_get']))
+    try:
+        await asyncio.sleep(1)
+        Client = RestAPIExampleAsyncInterface.ClientEndpointMapping()[f'http://localhost:{PORT}/']
+        with pytest.raises(InvocationError) as e:
+            await Client.raise_exception()
+        assert "ValueError: Fake exception raised for testing purposes." in e.value.message
     finally:
         task.cancel()
         with suppress(CancelledError):

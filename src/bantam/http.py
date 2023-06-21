@@ -69,6 +69,17 @@ def wrap(app, op):
     return wrapper
 
 
+async def response_from_exception(request, reason: str, code: int = 400):
+    text = traceback.format_exc()
+    resp = Response(status=code,
+                    reason=reason,
+                    text=text,
+                    content_type="text/plain"
+                    )
+    await resp.prepare(request)
+    return resp
+
+
 # noinspection PyUnresolvedReferences
 class WebApplication:
     """
@@ -332,14 +343,24 @@ class WebApplication:
                             # handles case of _expire !-> expire
                             immediate._bantam_web_api._name = method._bantam_web_api.name
                         elif hasattr(method, '_bantam_web_api'):
+                            parameters1 = inspect.signature(method).parameters
+                            if 'cls' in parameters1:
+                                del parameters1['cls']
+                            parameters2 = inspect.signature(method).parameters
+                            if 'cls' in parameters1:
+                                del parameters2['cls']
                             has_diff_web_api = (
                                 method._bantam_web_api.method != immediate._bantam_web_api.method
                                 or method._bantam_web_api.content_type != immediate._bantam_web_api.content_type
                                 or method._bantam_web_api.is_constructor != immediate._bantam_web_api.is_constructor
+                                or (inspect.signature(method).return_annotation !=
+                                    inspect.signature(immediate).return_annotation)
+                                or parameters1 != parameters2
                             )
                             if has_diff_web_api:
                                 raise ValueError(
-                                    f"Mismatch in @web_api specifications in {class_name}.{method_name}"
+                                    f"Mismatch in @web_api specifications, parameter names/types or return type"
+                                    f"in {class_name}.{method_name}"
                                     f" and {ancestor.__name__}.{method_name}"
                                 )
                             elif method._bantam_web_api.arg_annotations != immediate._bantam_web_api.arg_annotations:
@@ -647,23 +668,44 @@ class WebApplication:
                         postprocess(response) if postprocess else response
                     except Exception as e:
                         text = traceback.format_exc()
-                        resp_ = Response(status=400, text=f"Error in post-processing of response: {e}\n{text}")
+                        resp_ = Response(status=400, reason=f"Exception in processing: {e}", text=text,
+                                         content_type="text/plain")
                         await resp_.prepare(request)
                         return resp_
                     return response
+                except PermissionError as e:
+                    return await response_from_exception(
+                        code=401,
+                        request=request,
+                        reason=f"PermissionError with request: {str(e)}"
+                    )
+                except TypeError as e:
+                    return await response_from_exception(
+                        code=400,
+                        request=request,
+                        reason=f"Improperly formatted query: {str(e)}"
+                    )
+                except HTTPException:
+                    raise
                 except (CancelledError, ConnectionResetError, ClientConnectionError):
                     raise
+                except Exception as e:
+                    return await response_from_exception(
+                        request,
+                        code=400,
+                        reason=f"General exception in request: {str(e)}"
+                    )
                 except BaseException as e:
-                    text = traceback.format_exc()
-                    resp_ = Response(status=500, reason=f"Server error: {e}",
-                                     body=f"Server error: {e}\n{text}", content_type="test/plain")
-                    await resp_.prepare(request)
-                    return resp_
+                    return await response_from_exception(
+                        request,
+                        code=500,
+                        reason=f"General exception when processing request: {str(e)}"
+                    )
             resp_q = asynciomultiplexer.AsyncAdaptorQueue(1)
             await cls.MainThread.start(invoke_proper(), resp_q)
             resp = await resp_q.get()
             if isinstance(resp, Exception):
-                raise
+                raise resp
             return resp
 
         invoke.clazz = WebApplication._instance_methods_class_map.get(api) if is_instance_method else None
@@ -747,28 +789,22 @@ class WebApplication:
                 content_type = "text-streamed; charset=x-user-defined"
                 response = StreamResponse(status=200, reason='OK', headers={'Content-Type': content_type})
                 await response.prepare(request)
-                try:
-                    # iterate to get the one (and hopefully only) yielded element:
-                    # noinspection PyTypeChecker
-                    async for res in result:
-                        try:
-                            serialized = _serialize_return_value(res, encoding)
-                            if not isinstance(res, bytes):
-                                serialized += b'\0'
-                            await response.write(serialized)
-                        except (CancelledError, ConnectionResetError, ClientConnectionError):
-                            if api.on_disconnect is not None:
-                                if inspect.iscoroutinefunction(api.on_disconnect):
-                                    await api.on_disconnect(res)
-                                else:
-                                    api.on_disconnect(res)
-                            raise
+                # iterate to get the one (and hopefully only) yielded element:
+                # noinspection PyTypeChecker
+                async for res in result:
+                    try:
+                        serialized = _serialize_return_value(res, encoding)
+                        if not isinstance(res, bytes):
+                            serialized += b'\0'
+                        await response.write(serialized)
+                    except (CancelledError, ConnectionResetError, ClientConnectionError):
+                        if api.on_disconnect is not None:
+                            if inspect.iscoroutinefunction(api.on_disconnect):
+                                await api.on_disconnect(res)
+                            else:
+                                api.on_disconnect(res)
+                        raise
 
-                except (CancelledError, ConnectionResetError, ClientConnectionError):
-                    raise
-                except Exception as e:
-                    print(str(e))
-                    raise asyncio.CancelledError(f"Error in server-side logic: {e}") from e
                 await response.write_eof()
                 return response
             else:
@@ -798,29 +834,6 @@ class WebApplication:
                                 content_type=content_type)
                 await resp.prepare(request)
                 return resp
-        except PermissionError as e:
-            resp = Response(status=401,
-                            reason=f"Improperly formatted query: {str(e)}\n{traceback.format_exc()}",
-                            text=f"Improperly formatted query: {str(e)}\n{traceback.format_exc()}",
-                            )
-            await resp.prepare(request)
-            return resp
-        except TypeError as e:
-            resp = Response(status=400,
-                            reason=f"Improperly formatted query: {str(e)}\n{traceback.format_exc()}",
-                            text=f"Improperly formatted query: {str(e)}\n{traceback.format_exc()}",
-                            )
-            await resp.prepare(request)
-            return resp
-        except HTTPException:
-            raise
-        except Exception as e:
-            resp = Response(status=400,
-                            reason=f"Exception: {e}: \n{traceback.format_exc()}",
-                            text=f"Exception: {e}: \n{traceback.format_exc()}",
-                            )
-            await resp.prepare(request)
-            return resp
         finally:
             # noinspection PyUnresolvedReferences,PyProtectedMember
             del cls._context[sys._getframe(0)]
@@ -1003,22 +1016,6 @@ class WebApplication:
                                 content_type=content_type)
                 await resp.prepare(request)
                 return resp
-
-        except TypeError as e:
-            resp = Response(status=400, text=f"Improperly formatted query: {str(e)}")
-            await resp.prepare(request)
-            return resp
-        except HTTPException as e:
-            resp = Response(status=e.status_code, text=str(e))
-            await resp.prepare(request)
-            return resp
-        except (CancelledError, ConnectionResetError, ClientConnectionError):
-            raise
-        except Exception as e:
-            text = f"Exception: {e}\n {traceback.format_exc()}"
-            resp = Response(status=500, text=text)
-            await resp.prepare(request)
-            return resp
         finally:
             # noinspection PyUnresolvedReferences,PyProtectedMember
             del cls._context[sys._getframe(0)]

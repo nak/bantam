@@ -112,6 +112,11 @@ __all__ = ["WebInterface"]
 C = TypeVar('C', bound="WebInterface")
 
 
+class InvocationError(Exception):
+    def __init__(self, message: str):
+        self.message = message
+
+
 # noinspection PyProtectedMember
 class WebInterface(ABC):
 
@@ -144,6 +149,8 @@ class WebInterface(ABC):
                 arg_spec = inspect.getfullargspec(api._func)
             except Exception:
                 arg_spec = inspect.getfullargspec(api._func.__func__)
+            if len(arg_spec) - 1 < len(args):
+                raise TypeError(f"Too many arguments supplied in call to {api.name}")
             if arg_spec.varargs is None:
                 kwargs_.update({
                     arg_spec.args[n + 1]: arg for n, arg in enumerate(args)
@@ -152,33 +159,38 @@ class WebInterface(ABC):
                 kwargs_[arg_spec.varargs] = args
             # noinspection PyBroadException
             rest_method = api._func._bantam_web_api.method
-            if rest_method.value == RestMethod.GET.value:
-                url_args = cls._generate_url_args(kwargs=kwargs_)
-                url = f"{base_url}{url_args}"
+            data = None
+            try:
                 async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
-                    async with session.get(url) as resp:
-                        resp.raise_for_status()
-                        data = (await resp.content.read()).decode('utf-8')
-                        if api.is_constructor:
-                            if hasattr(clazz, 'jsonrepr'):
-                                repr_ = clazz.jsonrepr(data)
-                                self_id = repr_[api.uuid_param or 'uuid']
-                            else:
-                                repr_ = json.loads(data)
-                                self_id = repr_[api.uuid_param or 'uuid']
-                            return cls_(self_id)
-                        return conversions.from_str(data, api.return_type)
-            else:
-                payload = json.dumps({conversions.to_str(k): conversions.normalize_to_json_compat(v)
-                                      for k, v in kwargs_.items()})
-                async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
-                    async with session.post(base_url, data=payload) as resp:
-                        resp.raise_for_status()
-                        data = (await resp.content.read()).decode('utf-8')
-                        if api.is_constructor:
-                            self_id = json.loads(data)[api.uuid_param or 'uuid']
-                            return cls_(self_id)
-                        return conversions.from_str(data, api.return_type)
+                    if rest_method.value == RestMethod.GET.value:
+                        url_args = cls._generate_url_args(kwargs=kwargs_)
+                        url = f"{base_url}{url_args}"
+                        async with session.get(url) as resp:
+                            data = (await resp.content.read()).decode('utf-8')
+                            resp.raise_for_status()
+                            if api.is_constructor:
+                                if hasattr(clazz, 'jsonrepr'):
+                                    repr_ = clazz.jsonrepr(data)
+                                    self_id = repr_[api.uuid_param or 'uuid']
+                                else:
+                                    repr_ = json.loads(data)
+                                    self_id = repr_[api.uuid_param or 'uuid']
+                                return cls_(self_id)
+                            return conversions.from_str(data, api.return_type)
+                    else:
+                        payload = json.dumps({conversions.to_str(k): conversions.normalize_to_json_compat(v)
+                                              for k, v in kwargs_.items()})
+                        async with session.post(base_url, data=payload) as resp:
+                            data = (await resp.content.read()).decode('utf-8')
+                            resp.raise_for_status()
+                            if api.is_constructor:
+                                self_id = json.loads(data)[api.uuid_param or 'uuid']
+                                return cls_(self_id)
+                            return conversions.from_str(data, api.return_type)
+            except aiohttp.ClientResponseError as e:
+                error_body = data if resp is not None else "<<no response text/traceback info>>"
+                error_body += f"\n\nRequest to {api.name} failed: {e.message}"
+                raise InvocationError(error_body)
 
         setattr(clazz, name, class_method)
 
@@ -209,40 +221,45 @@ class WebInterface(ABC):
                 arg_spec.args[n + 1]: arg for n, arg in enumerate(args)
             })
             rest_method = api._func._bantam_web_api.method
-            if rest_method.value == RestMethod.GET.value:
-                url_args = cls._generate_url_args(kwargs=kwargs)
-                url = f"{base_url}{url_args}"
-                async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
-                    async with session.get(url) as resp:
-                        resp.raise_for_status()
-                        buffer = ""
-                        async for data, _ in resp.content.iter_chunks():
-                            if data:
-                                if api.return_type != bytes:
-                                    buffer += data.decode('utf-8')
-                                    *data_items, buffer = buffer.split('\0')
-                                    for datum in data_items:
-                                        yield conversions.from_str(datum, api.return_type)
-                                else:
-                                    data = data.decode('utf-8')
-                                    yield conversions.from_str(data, api.return_type)
-            else:
-                payload = json.dumps({conversions.to_str(k): conversions.normalize_to_json_compat(v)
-                                      for k, v in kwargs.items()})
-                async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
-                    async with session.post(base_url, data=payload) as resp:
-                        buffer = ""
-                        async for data, _ in resp.content.iter_chunks():
+            try:
+                if rest_method.value == RestMethod.GET.value:
+                    url_args = cls._generate_url_args(kwargs=kwargs)
+                    url = f"{base_url}{url_args}"
+                    async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
+                        async with session.get(url) as resp:
                             resp.raise_for_status()
-                            if data:
-                                if api.return_type != bytes:
-                                    buffer += data.decode('utf-8')
-                                    *data_items, buffer = buffer.split('\0')
-                                    for datum in data_items:
-                                        yield conversions.from_str(datum, api.return_type)
-                                else:
-                                    data = data.decode('utf-8')
-                                    yield conversions.from_str(data, api.return_type)
+                            buffer = ""
+                            async for data, _ in resp.content.iter_chunks():
+                                if data:
+                                    if api.return_type != bytes:
+                                        buffer += data.decode('utf-8')
+                                        *data_items, buffer = buffer.split('\0')
+                                        for datum in data_items:
+                                            yield conversions.from_str(datum, api.return_type)
+                                    else:
+                                        data = data.decode('utf-8')
+                                        yield conversions.from_str(data, api.return_type)
+                else:
+                    payload = json.dumps({conversions.to_str(k): conversions.normalize_to_json_compat(v)
+                                          for k, v in kwargs.items()})
+                    async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
+                        async with session.post(base_url, data=payload) as resp:
+                            buffer = ""
+                            async for data, _ in resp.content.iter_chunks():
+                                resp.raise_for_status()
+                                if data:
+                                    if api.return_type != bytes:
+                                        buffer += data.decode('utf-8')
+                                        *data_items, buffer = buffer.split('\0')
+                                        for datum in data_items:
+                                            yield conversions.from_str(datum, api.return_type)
+                                    else:
+                                        data = data.decode('utf-8')
+                                        yield conversions.from_str(data, api.return_type)
+            except aiohttp.ClientResponseError as e:
+                body = resp.content if resp is not None else "<<no response text/traceback info>>"
+                body += f"\n\nRequest to {api.name} failed: {e.message}"
+                raise Exception(body)
 
         setattr(clazz, name, class_method_streamed)
 
@@ -270,26 +287,31 @@ class WebInterface(ABC):
             })
             # noinspection PyBroadException
             rest_method = api._func._bantam_web_api.method
-            if rest_method.value == RestMethod.GET.value:
-                url_args = cls._generate_url_args(self_id=self.self_id, kwargs=kwargs_)
-                url = f"{base_url}{url_args}"
-                async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
-                    async with session.get(url) as resp:
-                        resp.raise_for_status()
-                        data = (await resp.content.read()).decode('utf-8')
-                        return conversions.from_str(data, api.return_type)
-            else:
-                kwargs_['self'] = self.self_id
-                payload = json.dumps({conversions.to_str(k): conversions.normalize_to_json_compat(v)
-                                      for k, v in kwargs_.items()})
-                async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
-                    async with session.post(base_url, data=payload) as resp:
-                        resp.raise_for_status()
-                        data = (await resp.content.read()).decode('utf-8')
-                        if api.is_constructor:
-                            self_id = json.loads(data)['self_id']
-                            return clazz(self_id)
-                        return conversions.from_str(data, api.return_type)
+            try:
+                if rest_method.value == RestMethod.GET.value:
+                    url_args = cls._generate_url_args(self_id=self.self_id, kwargs=kwargs_)
+                    url = f"{base_url}{url_args}"
+                    async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
+                        async with session.get(url) as resp:
+                            resp.raise_for_status()
+                            data = (await resp.content.read()).decode('utf-8')
+                            return conversions.from_str(data, api.return_type)
+                else:
+                    kwargs_['self'] = self.self_id
+                    payload = json.dumps({conversions.to_str(k): conversions.normalize_to_json_compat(v)
+                                          for k, v in kwargs_.items()})
+                    async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
+                        async with session.post(base_url, data=payload) as resp:
+                            resp.raise_for_status()
+                            data = (await resp.content.read()).decode('utf-8')
+                            if api.is_constructor:
+                                self_id = json.loads(data)['self_id']
+                                return clazz(self_id)
+                            return conversions.from_str(data, api.return_type)
+            except aiohttp.ClientResponseError as e:
+                body = resp.content if resp is not None else "<<no response text/traceback info>>"
+                body += f"\n\nRequest to {api.name} failed: {e.message}"
+                raise Exception(body)
 
         setattr(clazz, name, instance_method)
 
@@ -310,41 +332,47 @@ class WebInterface(ABC):
                 arg_spec.args[n + 1]: arg for n, arg in enumerate(args)
             })
             rest_method = api.method
-            if rest_method == RestMethod.GET:
-                url_args = cls._generate_url_args(self_id=self.self_id, kwargs=kwargs_)
-                url = f"{base_url}{url_args}"
-                async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
-                    async with session.get(url) as resp:
-                        resp.raise_for_status()
-                        buffer = ""
-                        async for data, _ in resp.content.iter_chunks():
-                            if data:
-                                if api.return_type != bytes:
-                                    buffer += data.decode('utf-8')
-                                    *data_items, buffer = buffer.split('\0')
-                                    for datum in data_items:
-                                        yield conversions.from_str(datum, api.return_type)
-                                else:
-                                    data = data.decode('utf-8')
-                                    yield conversions.from_str(data, api.return_type)
-            else:
-                url = f"{base_url}?self={self.self_id}"
-                kwargs_['self'] = self.self_id
-                payload = json.dumps({k: conversions.to_str(v) for k, v in kwargs_.items()})
-                async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
-                    async with session.post(url, data=payload) as resp:
-                        resp.raise_for_status()
-                        buffer = ""
-                        async for data, _ in resp.content.iter_chunks():
-                            if data:
-                                if api.return_type != bytes:
-                                    buffer += data.decode('utf-8')
-                                    *data_items, buffer = buffer.split('\0')
-                                    for datum in data_items:
-                                        yield conversions.from_str(datum, api.return_type)
-                                else:
-                                    data = data.decode('utf-8')
-                                    yield conversions.from_str(data, api.return_type)
+            try:
+                if rest_method == RestMethod.GET:
+                    url_args = cls._generate_url_args(self_id=self.self_id, kwargs=kwargs_)
+                    url = f"{base_url}{url_args}"
+                    async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
+                        async with session.get(url) as resp:
+                            resp.raise_for_status()
+                            buffer = ""
+                            async for data, _ in resp.content.iter_chunks():
+                                if data:
+                                    if api.return_type != bytes:
+                                        buffer += data.decode('utf-8')
+                                        *data_items, buffer = buffer.split('\0')
+                                        for datum in data_items:
+                                            yield conversions.from_str(datum, api.return_type)
+                                    else:
+                                        data = data.decode('utf-8')
+                                        yield conversions.from_str(data, api.return_type)
+                else:
+                    url = f"{base_url}?self={self.self_id}"
+                    kwargs_['self'] = self.self_id
+                    payload = json.dumps({k: conversions.to_str(v) for k, v in kwargs_.items()})
+                    async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
+                        async with session.post(url, data=payload) as resp:
+                            resp.raise_for_status()
+                            buffer = ""
+                            async for data, _ in resp.content.iter_chunks():
+                                if data:
+                                    if api.return_type != bytes:
+                                        buffer += data.decode('utf-8')
+                                        *data_items, buffer = buffer.split('\0')
+                                        for datum in data_items:
+                                            yield conversions.from_str(datum, api.return_type)
+                                    else:
+                                        data = data.decode('utf-8')
+                                        yield conversions.from_str(data, api.return_type)
+            except aiohttp.ClientResponseError as e:
+                body = resp.content if resp is not None else "<<no response text/traceback info>>"
+                body += f"\n\nRequest to {api.name} failed: {e.message}"
+                raise Exception(body)
+
         setattr(clazz, name, instance_method_streamed)
 
     # noinspection PyPep8Naming

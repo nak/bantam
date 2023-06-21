@@ -177,6 +177,14 @@ class RestAPIExampleAsyncInterface(WebInterface):
         raise NotImplemented
         yield None
 
+    @classmethod
+    @web_api(content_type='text/plain', method=RestMethod.GET)
+    @abstractmethod
+    async def raise_exception(cls) -> None:
+        """
+        Deliberate raise for testing purposes
+        """
+
 
 class RestAPIExampleAsync(RestAPIExampleAsyncInterface):
     """
@@ -320,3 +328,9 @@ class RestAPIExampleAsync(RestAPIExampleAsyncInterface):
     async def my_value_repeated_string(self, count: int) -> AsyncIterator[str]:
         for _ in range(count):
             yield str(self._val)
+
+    @classmethod
+    @web_api(content_type='text/plain', method=RestMethod.GET)
+    async def raise_exception(cls) -> None:
+        raise ValueError(f"Fake exception raised for testing purposes.")
+
