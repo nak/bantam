@@ -404,7 +404,7 @@ class bantam {
             api_doc = f"/**\n<<Unable to generate>> {e}\n**/\n"
         out.write(b'\n')
         out.write(api_doc.encode('utf-8'))
-        argnames = list(api.arg_annotations.keys())
+        argnames = [k for k in api.arg_annotations.keys() if k not in [api._vararg, api._varkwds]]
         if api.is_constructor:
             if api.name == '_create':
                 out.write(

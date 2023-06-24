@@ -112,7 +112,7 @@ class TestRunner{
         let api =bantam.class_js_test.RestAPIExample;
         api.api_get_basic(function(text){self.onsuccess(testname, text, "Response to test_api_basic")},
             function(code, reason){self.onerror(testname, code, reason,
-            "Bad Request: Improperly formatted query: RestAPIExample.api_get_basic() missing 1 required positional argument: 'param3'")},
+            "Improperly formatted query: RestAPIExample.api_get_basic() missing 1 required positional argument: 'param3'")},
             1234, true);
     }
 
@@ -256,7 +256,7 @@ class TestRunner{
         let api =bantam.class_js_test.RestAPIExample;
         api.api_post_basic(function(text){self.onsuccess(testname, text, "Response to test_api_basic")},
             function(code, reason){self.onerror(testname, code, reason,
-            "Bad Request: Improperly formatted query: RestAPIExample.api_post_basic() missing 1 required positional argument: 'param3'")},
+            "Improperly formatted query: RestAPIExample.api_post_basic() missing 1 required positional argument: 'param3'")},
             1234, true);
     }
 

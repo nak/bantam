@@ -14,6 +14,9 @@ from aiohttp.web_response import Response, StreamResponse
 from bantam.http import WebApplication
 
 
+PORT = 8089
+
+
 class TestJavascriptGenerator:
 
     @pytest.mark.asyncio
@@ -53,9 +56,9 @@ class TestJavascriptGenerator:
                 os.write(sys.stderr.fileno(),
                          b"UNABLE TO GET BROWSER SUPPORT HEADLESS CONFIGURATION. DEFAULTING TO NON_HEADLESSS")
                 browser = webbrowser.get()
-            browser.open("http://localhost:8080/static/index.html")
+            browser.open(f"http://localhost:{PORT}/static/index.html")
 
-        app_task = asyncio.create_task(app.start(modules=['class_js_test']))
+        app_task = asyncio.create_task(app.start(modules=['class_js_test'], port=PORT))
         browser_task = asyncio.create_task(launch_browser())
         try:
             result = await asyncio.wait_for(RestAPIExample.result_queue.get(), timeout=120)

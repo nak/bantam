@@ -1,12 +1,11 @@
 import asyncio
 import json
 import os
-import sys
 import traceback
 import webbrowser
 from contextlib import suppress
 from pathlib import Path
-from typing import AsyncIterator, Optional, Dict, Any, List
+from typing import Dict, Any
 
 import pytest
 from aiohttp.web_request import Request
@@ -17,6 +16,9 @@ from bantam.http import WebApplication
 import sys
 sys.path.insert(0, os.path.dirname(__file__))
 from class_rest_get import RestAPIExampleAsync
+
+
+PORT = 8082
 
 
 class TestJavascriptGenerator:
@@ -51,14 +53,14 @@ class TestJavascriptGenerator:
                 os.write(sys.stderr.fileno(),
                          b"UNABLE TO GET BROWSER SUPPORT IN HEADLESS CONFIGURATION. DEFAULTING TO NON_HEADLESS")
                 browser = webbrowser.get()
-            browser.open("http://localhost:8081/static/index_async.html")
+            browser.open(f"http://localhost:{PORT}/static/index_async.html")
             result = await RestAPIExampleAsync.result_queue.get()
             await asyncio.sleep(2.0)
             await app.shutdown()
             return result
 
         try:
-            completed, _ = await asyncio.wait([app.start(modules=['class_rest_get'], port=8081),
+            completed, _ = await asyncio.wait([app.start(modules=['class_rest_get'], port=PORT),
                                                launch_browser()], timeout=100000, return_when=asyncio.FIRST_COMPLETED)
             results = [c.result() for c in completed if c is not None]
         except Exception as e:

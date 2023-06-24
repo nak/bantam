@@ -33,6 +33,8 @@ class API:
         self._real_func = func
         self._method = method
         self._timeout = timeout or ClientTimeout()
+        self._vararg = None
+        self._varkwds = None
         if 'return' not in annotations:
             raise TypeError(f"No annotation for return type in {func}")
         self._arg_annotations = {name: typ for name, typ in annotations.items() if name != 'return'}
@@ -41,8 +43,10 @@ class API:
             for name in self._arg_annotations:
                 if sig.parameters[name].kind == inspect.Parameter.VAR_POSITIONAL:
                     self._arg_annotations[name] = typing.Tuple[int, None]
+                    self._vararg = name
                 elif sig.parameters[name].kind == inspect.Parameter.VAR_KEYWORD:
                     self._arg_annotations[name] = typing.Dict[str, self._arg_annotations[name]]
+                    self._varkwds = name
         self._async_arg_annotations = {
             name: typ for name, typ in self._arg_annotations.items()
             if typ in (bytes, AsyncChunkIterator, AsyncLineIterator)
@@ -158,6 +162,8 @@ class API:
         updated = kwargs
         varargs = tuple()
         for name, param in sig.parameters.items():
+            if name not in kwargs:
+                continue
             if param.kind == inspect.Parameter.VAR_KEYWORD:
                 del updated[name]
                 updated.update(**kwargs[name])

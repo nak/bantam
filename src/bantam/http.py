@@ -943,7 +943,7 @@ class WebApplication:
                 awaitable = api(api.clazz, *varargs, **kwargs)
             else:
                 kwargs, varargs = api.update_varargs(kwargs)
-                awaitable = api(*varags, **kwargs)
+                awaitable = api(*varargs, **kwargs)
             if inspect.isasyncgen(awaitable):
                 #################
                 #  streamed response through async generator:
