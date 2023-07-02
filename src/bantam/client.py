@@ -100,7 +100,7 @@ import inspect
 import json
 from abc import ABC
 from functools import wraps
-from typing import Any, Dict, TypeVar, Optional, Type, AsyncIterator, Generic, Mapping, Iterator
+from typing import Any, Dict, TypeVar, Optional, Type,  Iterator, Generic, Mapping, Iterator
 
 import aiohttp
 

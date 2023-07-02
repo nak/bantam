@@ -106,6 +106,7 @@ async def test_client_instance_method_streamed(tmpdir):
         with suppress(CancelledError):
             await task
 
+
 @pytest.mark.asyncio
 async def test_client_instance_method_streamed_str(tmpdir):
     from class_rest_get import RestAPIExampleAsyncInterface

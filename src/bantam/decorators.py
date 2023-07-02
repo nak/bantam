@@ -1,6 +1,5 @@
 import inspect
-import sys
-from typing import Any, Callable, Awaitable, Union, Optional, Dict
+from typing import Any, Callable, Awaitable, Union, Optional, Dict, AsyncIterator
 
 from aiohttp.web import Request, Response
 from aiohttp.web_response import StreamResponse
@@ -8,7 +7,7 @@ from aiohttp import ClientTimeout
 
 from bantam.api import RestMethod
 
-WebApi = Callable[..., Awaitable[Any]]
+WebApi = Callable[..., Union[Awaitable[Any], AsyncIterator[Any]]]
 
 
 PreProcessor = Callable[[Request], Union[None, Dict[str, Any]]]
@@ -18,7 +17,7 @@ PostProcessor = Callable[[Union[Response, StreamResponse]], Union[Response, Stre
 def web_api(content_type: str, method: RestMethod = RestMethod.GET,
             is_constructor: bool = False,
             expire_obj: bool = False,
-            on_disconnect: Optional[Callable[[], None]] = None,
+            on_disconnect: Optional[Callable[[], Union[None, Awaitable[None]]]] = None,
             timeout: Optional[ClientTimeout] = None,
             uuid_param: Optional[str] = None,
             preprocess: Optional[PreProcessor] = None,
@@ -31,9 +30,9 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
 
     >>> class MyResource:
     ...
+    ...   @classmethod
     ...   @web_api(content_type="text/html")
-    ...   @staticmethod
-    ...   def say_hello(name: str):
+    ...   def say_hello(cls, name: str):
     ...      return f"Hi there, {name}!"
 
     Only GET calls with explicit parameters in the URL are support for now.  The above registers a route
@@ -48,13 +47,16 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
     :param expire_obj: for instance methods only, epxire the object upon successful completion of that call
     :param on_disconnect: callback if client disconnects unexpectedly
     :param timeout: optional timeout value for response to request to timeout
+    :param uuid_param: optional name of parameter to use as unique id for 'self'
+    :param preprocess: optional preprocess function to invoke on request
+    :param postprocess: optional postprocess function to run after servicing request
     :return: callable decorator
     """
     from .http import WebApplication
     if not isinstance(content_type, str):
         raise Exception("@web_api must provide one str argument which is the content type")
 
-    def wrapper(func: Union[WebApi, staticmethod, classmethod]) -> Union[WebApi, staticmethod, classmethod]:
+    def wrapper(func: Union[WebApi]) -> Union[WebApi]:
         if not inspect.ismethod(func):
             args = inspect.signature(func)
             first_arg = list(args.parameters.keys())[0] if args else None
@@ -68,15 +70,16 @@ def web_api(content_type: str, method: RestMethod = RestMethod.GET,
         if (is_static or is_class_method) and expire_obj:
             raise TypeError("@web_api's expire_obj param can only be set True for instance methods")
         if not is_static and not is_class_method and not inspect.ismethod(func) and not inspect.isfunction(func):
-            raise TypeError("@web_api should only be applied to @classmethod's, @staticmethods or instance methods")
+            raise TypeError("@web_api should only be applied to @classmethod's or instance methods")
         if func.__name__.startswith('_'):
             raise TypeError("names of web_api methods must not start with underscore")
 
         def get_class_that_defined_method():
             return func.__qualname__.split('.')[0]
 
+        # noinspection PyUnresolvedReferences
         return WebApplication._func_wrapper((func.__module__, get_class_that_defined_method())
-                                                if is_class_method else None,
+                                            if is_class_method else None,
                                             func,
                                             timeout=timeout,
                                             is_instance_method=not is_static and not is_class_method,
