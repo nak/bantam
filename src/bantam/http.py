@@ -990,7 +990,7 @@ class WebApplication:
                     if not premature_exit:
                         await resp.prepare(request)
                     return resp
-                if not premature_exit:
+                with suppress(Exception):
                     await response.write_eof()
                 return response
             else:
