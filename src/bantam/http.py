@@ -954,6 +954,7 @@ class WebApplication:
                 content_type = "text/streamed; charset=x-user-defined"
                 response = StreamResponse(status=200, reason='OK', headers={'Content-Type': content_type})
                 await response.prepare(request)
+                premature_exit = False
                 try:
                     # iterate to get the one (and hopefully only) yielded element:
                     # noinspection PyTypeChecker
@@ -967,13 +968,17 @@ class WebApplication:
                             count += 1
                         except (CancelledError, ConnectionResetError, ClientConnectionError):
                             if api.on_disconnect is not None:
-                                # noinspection PyUnboundLocalVariable
-                                args = (instance, res, ) if api.is_instance_method else (res, )
-                                if inspect.iscoroutinefunction(api.on_disconnect):
-                                    await api.on_disconnect(*args)
-                                else:
-                                    api.on_disconnect(*args)
-                            raise
+                                try:
+                                    # noinspection PyUnboundLocalVariable
+                                    args = (instance, res, ) if api.is_instance_method else (res, )
+                                    if inspect.iscoroutinefunction(api.on_disconnect):
+                                        await api.on_disconnect(*args)
+                                    else:
+                                        api.on_disconnect(*args)
+                                except Exception as e:
+                                    print(f"ERROR in call to on_disconnect from bantam async generator: {e}")
+                            premature_exit = True
+                            break
 
                 except (CancelledError, ConnectionResetError, ClientConnectionError):
                     raise
@@ -982,9 +987,11 @@ class WebApplication:
                     await async_q.put(None)
                     resp = Response(status=500, body=f"Exception in server-side logic: {e}",
                                     content_type='text/plain')
-                    await resp.prepare(request)
+                    if not premature_exit:
+                        await resp.prepare(request)
                     return resp
-                await response.write_eof()
+                if not premature_exit:
+                    await response.write_eof()
                 return response
             else:
                 #################
