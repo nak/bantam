@@ -124,6 +124,11 @@ def _issubclass_safe(typ, clazz):
 def from_str(image: str, typ: Type) -> Any:
     if hasattr(typ, '_name') and (str(typ).startswith('typing.Union') or str(typ).startswith('typing.Optional')):
         # noinspection PyUnresolvedReferences
+        allow_none = str(typ).startswith('typing.Optional')
+        if allow_none and not image:
+            # TODO: cannot really distinguish when return type is Optional[bytes] whether
+            #   None or bytes() should be returned
+            return None
         typ = typ.__args__[0]
     #######
     if _issubclass_safe(typ, Enum):

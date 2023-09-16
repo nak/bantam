@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from typing import Dict, List, Union, Tuple, Set
+from typing import Dict, List, Union, Tuple, Set, Optional
 
 import pytest
 
@@ -56,6 +56,10 @@ class Test:
 
     def test_int_from_str(self):
         assert from_str("1234", int) == 1234
+
+    def test_optional_int_from_str(self):
+        assert from_str("1234", Optional[int]) == 1234
+        assert from_str('', Optional[int]) == None
 
     def test_float_from_str(self):
         assert from_str("-9.3345", float) == pytest.approx(-9.3345)
