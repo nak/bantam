@@ -950,11 +950,10 @@ class WebApplication:
                 #################
                 # underlying function has yielded a result rather than turning
                 # process the yielded value and allow execution to resume from yielding task
-                async_q = asyncio.Queue()
+                # async_q = asyncio.Queue()
                 content_type = "text/streamed; charset=x-user-defined"
                 response = StreamResponse(status=200, reason='OK', headers={'Content-Type': content_type})
-                await response.prepare(request)
-                premature_exit = False
+                prepared = False
                 try:
                     # iterate to get the one (and hopefully only) yielded element:
                     # noinspection PyTypeChecker
@@ -964,6 +963,8 @@ class WebApplication:
                             serialized = _serialize_return_value(res, encoding)
                             if not isinstance(res, bytes):
                                 serialized += b'\0'
+                            if not prepared:
+                                await response.prepare(request)
                             await response.write(serialized)
                             count += 1
                         except (CancelledError, ConnectionResetError, ClientConnectionError):
@@ -979,18 +980,18 @@ class WebApplication:
                                     print(f"ERROR in call to on_disconnect from bantam async generator: {e}")
                             premature_exit = True
                             break
-
                 except (CancelledError, ConnectionResetError, ClientConnectionError):
                     raise
                 except Exception as e:
-                    print(str(e))
-                    await async_q.put(None)
-                    resp = StreamResponse(status=500)
-                    if not premature_exit:
-                        await resp.prepare(request)
-                    await resp.write(f"Exception in server-side logic: {e}".encode('utf-8'))
-                with suppress(Exception):
-                    await response.write_eof()
+                    logging.error(str(e))
+                    if not prepared:
+                        response = Response(status=500, reason=f"Exception in server-side logic: {e}",
+                                            body=f"Exception in server-side logic: {e}")
+                        await response.prepare(request)
+                    else:
+                        await response.write(f"Exception in server-side logic: {e}".encode('utf-8'))
+                        with suppress(Exception):
+                            await response.write_eof()
                 return response
             else:
                 #################

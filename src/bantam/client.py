@@ -217,7 +217,7 @@ class WebInterface(ABC):
         # noinspection PyDecorator,PyUnusedLocal
         @classmethod
         async def class_method_streamed(cls_, *args, **kwargs):
-            nonlocal api, end_point
+            nonlocal api, end_point, common_headers
             resp = None
             # noinspection PyBroadException
             try:
@@ -228,6 +228,7 @@ class WebInterface(ABC):
                 arg_spec.args[n + 1]: arg for n, arg in enumerate(args)
             })
             rest_method = api._func._bantam_web_api.method
+            common_headers = (common_headers or {}).update({'Content-Type': 'text/streamed'})
             try:
                 if rest_method.value == RestMethod.GET.value:
                     url_args = cls._generate_url_args(kwargs=kwargs)
@@ -251,9 +252,9 @@ class WebInterface(ABC):
                                           for k, v in kwargs.items()})
                     async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
                         async with session.post(base_url, data=payload) as resp:
+                            resp.raise_for_status()
                             buffer = ""
                             async for data, _ in resp.content.iter_chunks():
-                                resp.raise_for_status()
                                 if data:
                                     if api.return_type != bytes:
                                         buffer += data.decode('utf-8')
@@ -264,8 +265,7 @@ class WebInterface(ABC):
                                         data = data.decode('utf-8')
                                         yield conversions.from_str(data, api.return_type)
             except aiohttp.ClientResponseError as e:
-                body = resp.content if resp is not None else "<<no response text/traceback info>>"
-                body += f"\n\nRequest to {api.name} failed: {e.message}"
+                body = e.message
                 raise Exception(body)
 
         setattr(clazz, name, class_method_streamed)
