@@ -985,8 +985,8 @@ class WebApplication:
                 except Exception as e:
                     print(str(e))
                     await async_q.put(None)
-                    resp = Response(status=500, body=f"Exception in server-side logic: {e}",
-                                    content_type='text/plain')
+                    resp = StreamedResponse(status=500, body=f"Exception in server-side logic: {e}",
+                                            content_type='text/plain')
                     if not premature_exit:
                         await resp.prepare(request)
                     return resp
