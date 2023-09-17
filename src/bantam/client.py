@@ -218,6 +218,7 @@ class WebInterface(ABC):
         @classmethod
         async def class_method_streamed(cls_, *args, **kwargs):
             nonlocal api, end_point
+            resp = None
             # noinspection PyBroadException
             try:
                 arg_spec = inspect.getfullargspec(api._func)
