@@ -80,6 +80,9 @@ async def response_from_exception(request, reason: str, code: int = 400):
     return resp
 
 
+ASYNC_POLLING_INTERVAL = float(os.environ.get('BANTAM_ASYNC_POLL', 0.05))
+
+
 # noinspection PyUnresolvedReferences
 class WebApplication:
     """
@@ -126,7 +129,7 @@ class WebApplication:
                 await resp_q.put(resp)
 
             while True:
-                request = await cls.request_q.get(polling_interval=0.01)
+                request = await cls.request_q.get(polling_interval=ASYNC_POLLING_INTERVAL)
                 asyncio.create_task(task(*request))
 
     class ObjectRepo:
