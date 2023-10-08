@@ -98,9 +98,10 @@ method above.  The *end_point* parameter specifies the base url to the server th
 """
 import inspect
 import json
+import sys
 from abc import ABC
 from functools import wraps
-from typing import Any, Dict, TypeVar, Optional, Type,  Iterator, Generic, Mapping, Iterator
+from typing import Any, Dict, TypeVar, Optional, Type, Generic, Mapping, Iterator
 
 import aiohttp
 
@@ -173,6 +174,8 @@ class WebInterface(ABC):
                         url = f"{base_url}{url_args}"
                         async with session.get(url) as resp:
                             data = (await resp.content.read()).decode('utf-8')
+                            if not resp.ok:
+                                sys.stderr.write(data + '\n')
                             resp.raise_for_status()
                             if api.is_constructor:
                                 if hasattr(clazz, 'jsonrepr'):
@@ -188,6 +191,8 @@ class WebInterface(ABC):
                                               for k, v in kwargs_.items()})
                         async with session.post(base_url, data=payload) as resp:
                             data = (await resp.content.read()).decode('utf-8')
+                            if not resp.ok:
+                                sys.stderr.write(data + '\n')
                             resp.raise_for_status()
                             if api.is_constructor:
                                 self_id = json.loads(data)[api.uuid_param or 'uuid']
@@ -235,6 +240,8 @@ class WebInterface(ABC):
                     url = f"{base_url}{url_args}"
                     async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
                         async with session.get(url) as resp:
+                            if not resp.ok:
+                                sys.stderr.write((await resp.content.read()).decode('utf-8') + '\n')
                             resp.raise_for_status()
                             buffer = ""
                             async for data, _ in resp.content.iter_chunks():
@@ -252,6 +259,8 @@ class WebInterface(ABC):
                                           for k, v in kwargs.items()})
                     async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
                         async with session.post(base_url, data=payload) as resp:
+                            if not resp.ok:
+                                sys.stderr.write((await resp.content.read()).decode('utf-8') + '\n')
                             resp.raise_for_status()
                             buffer = ""
                             async for data, _ in resp.content.iter_chunks():
@@ -300,6 +309,8 @@ class WebInterface(ABC):
                     url = f"{base_url}{url_args}"
                     async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
                         async with session.get(url) as resp:
+                            if not resp.ok:
+                                sys.stderr.write((await resp.content.read()).decode('utf-8') + '\n')
                             resp.raise_for_status()
                             data = (await resp.content.read()).decode('utf-8')
                             return conversions.from_str(data, api.return_type)
@@ -309,6 +320,8 @@ class WebInterface(ABC):
                                           for k, v in kwargs_.items()})
                     async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
                         async with session.post(base_url, data=payload) as resp:
+                            if not resp.ok:
+                                sys.stderr.write((await resp.content.read()).decode('utf-8') + '\n')
                             resp.raise_for_status()
                             data = (await resp.content.read()).decode('utf-8')
                             if api.is_constructor:
@@ -345,6 +358,8 @@ class WebInterface(ABC):
                     url = f"{base_url}{url_args}"
                     async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
                         async with session.get(url) as resp:
+                            if not resp.ok:
+                                sys.stderr.write((await resp.content.read()).decode('utf-8') + '\n')
                             resp.raise_for_status()
                             buffer = ""
                             async for data, _ in resp.content.iter_chunks():
@@ -363,6 +378,8 @@ class WebInterface(ABC):
                     payload = json.dumps({k: conversions.to_str(v) for k, v in kwargs_.items()})
                     async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
                         async with session.post(url, data=payload) as resp:
+                            if not resp.ok:
+                                sys.stderr.write((await resp.content.read()).decode('utf-8') + '\n')
                             resp.raise_for_status()
                             buffer = ""
                             async for data, _ in resp.content.iter_chunks():
