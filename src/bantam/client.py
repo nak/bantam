@@ -167,6 +167,7 @@ class WebInterface(ABC):
             # noinspection PyBroadException
             rest_method = api._func._bantam_web_api.method
             data = None
+            resp = None
             try:
                 async with aiohttp.ClientSession(timeout=api.timeout, headers=common_headers) as session:
                     if rest_method.value == RestMethod.GET.value:
