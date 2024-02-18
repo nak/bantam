@@ -791,25 +791,38 @@ class WebApplication:
                 # process the yielded value and allow execution to resume from yielding task
                 content_type = "text-streamed; charset=x-user-defined"
                 response = StreamResponse(status=200, reason='OK', headers={'Content-Type': content_type})
-                await response.prepare(request)
+                prepared = False
                 # iterate to get the one (and hopefully only) yielded element:
                 # noinspection PyTypeChecker
-                async for res in result:
-                    try:
-                        serialized = _serialize_return_value(res, encoding)
-                        if not isinstance(res, bytes):
-                            serialized += b'\0'
-                        await response.write(serialized)
-                    except (CancelledError, ConnectionResetError, ClientConnectionError):
-                        if api.on_disconnect is not None:
-                            if inspect.iscoroutinefunction(api.on_disconnect):
-                                await api.on_disconnect(res)
-                            else:
-                                api.on_disconnect(res)
-                        raise
-
-                await response.write_eof()
-                return response
+                try:
+                    if not prepared:
+                        await response.prepare(request)
+                        prepared = True
+                        # This is done post-await of first result in cas of exception right off the bat
+                    async for res in result:
+                        try:
+                            serialized = _serialize_return_value(res, encoding)
+                            if not isinstance(res, bytes):
+                                serialized += b'\0'
+                            await response.write(serialized)
+                        except (CancelledError, ConnectionResetError, ClientConnectionError):
+                            if api.on_disconnect is not None:
+                                if inspect.iscoroutinefunction(api.on_disconnect):
+                                    await api.on_disconnect(res)
+                                else:
+                                    api.on_disconnect(res)
+                            raise
+                except (CancelledError, ConnectionError, ClientConnectionError):
+                    raise
+                except Exception as e:
+                    if not prepared:
+                        response.set_status(400, reason=f"Exception in request: {str(e)}")
+                        await response.prepare(request)
+                    else:
+                        log.error(f"Exception in server-side logic handling request: {str(e)}")
+                finally:
+                    await response.write_eof()
+                    return response
             else:
                 #################
                 #  regular response
@@ -981,20 +994,22 @@ class WebApplication:
                                         api.on_disconnect(*args)
                                 except Exception as e:
                                     print(f"ERROR in call to on_disconnect from bantam async generator: {e}")
-                            premature_exit = True
                             break
                 except (CancelledError, ConnectionResetError, ClientConnectionError):
                     raise
                 except Exception as e:
                     logging.error(str(e))
                     if not prepared:
-                        response = Response(status=500, reason=f"Exception in server-side logic: {e}",
-                                            body=f"Exception in server-side logic: {e}")
+                        response = Response(status=400, reason=f"Exception in servicing request: {e}",
+                                            body=f"Exception in servicing request: {e}")
                         await response.prepare(request)
                     else:
                         await response.write(f"Exception in server-side logic: {e}".encode('utf-8'))
                         with suppress(Exception):
                             await response.write_eof()
+                        return response
+                finally:
+                    await response.write_eof()
                 return response
             else:
                 #################
