@@ -795,11 +795,11 @@ class WebApplication:
                 # iterate to get the one (and hopefully only) yielded element:
                 # noinspection PyTypeChecker
                 try:
-                    if not prepared:
-                        await response.prepare(request)
-                        prepared = True
-                        # This is done post-await of first result in cas of exception right off the bat
                     async for res in result:
+                        if not prepared:
+                            await response.prepare(request)
+                            prepared = True
+                            # This is done post-await of first result in cas of exception right off the bat
                         try:
                             serialized = _serialize_return_value(res, encoding)
                             if not isinstance(res, bytes):
