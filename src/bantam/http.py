@@ -821,6 +821,8 @@ class WebApplication:
                     else:
                         log.error(f"Exception in server-side logic handling request: {str(e)}")
                 finally:
+                    if not prepared:  # nothing generated in this case, but still a 200
+                        await response.prepare(request)
                     await response.write_eof()
                     return response
             else:
@@ -1009,6 +1011,8 @@ class WebApplication:
                             await response.write_eof()
                         return response
                 finally:
+                    if not prepared:
+                        await response.prepare(request)
                     await response.write_eof()
                 return response
             else:

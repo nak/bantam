@@ -9,7 +9,7 @@ from typing import Dict, Any
 
 import pytest
 from aiohttp.web_request import Request
-from aiohttp.web_response import Response
+from aiohttp.web_response import Response, StreamResponse
 from bantam.http import WebApplication
 
 
@@ -30,7 +30,7 @@ class TestJavascriptGenerator:
             return {}
 
         def assert_postprocessor(response: Response) -> None:
-            assert isinstance(response, Response), "Failed to get valid response for post-processing"
+            assert isinstance(response, (StreamResponse, Response)), "Failed to get valid response for post-processing"
 
         RestAPIExampleAsync.result_queue = asyncio.Queue()
         root = Path(__file__).parent
