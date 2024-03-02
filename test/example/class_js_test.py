@@ -49,7 +49,11 @@ class RestAPIExample:
         return "Response to test_api_basic"
 
     @classmethod
-    @web_api(content_type='text/json', method=RestMethod.GET)
+    def on_disconnct(cls):
+        print("HERE")
+
+    @classmethod
+    @web_api(content_type='text/json', method=RestMethod.GET, on_disconnect=on_disconnct)
     async def api_get_stream(param1: int, param2: bool, param3: float, param4: Optional[str] = None) -> AsyncGenerator[None, int]:
         """
         Some sort of doc

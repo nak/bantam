@@ -293,8 +293,12 @@ class RestAPIExampleAsync(RestAPIExampleAsyncInterface):
             yield f"ECHO: {line}"
             await asyncio.sleep(0.02)
 
+    @staticmethod
+    async def on_disconnect(*args, **kwargs):
+        print("Called on disconnect")
+
     @classmethod
-    @web_api(content_type='text/json', method=RestMethod.POST)
+    @web_api(content_type='text/json', method=RestMethod.POST, on_disconnect=on_disconnect)
     async def api_post_stream_text(cls, param1: int, param2: bool, param3: float, param4: Optional[str] = None) \
             -> AsyncIterator[str]:
         """

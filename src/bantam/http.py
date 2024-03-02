@@ -807,7 +807,9 @@ class WebApplication:
                             await response.write(serialized)
                         except (CancelledError, ConnectionResetError, ClientConnectionError):
                             if api.on_disconnect is not None:
-                                if inspect.iscoroutinefunction(api.on_disconnect):
+                                if inspect.iscoroutinefunction(api.on_disconnect) or\
+                                    (hasattr(api.on_disconnect, '__func__') and
+                                     inspect.iscoroutinefunction(api.on_disconnect.__func__)):
                                     await api.on_disconnect(res)
                                 else:
                                     api.on_disconnect(res)
@@ -990,7 +992,9 @@ class WebApplication:
                                 try:
                                     # noinspection PyUnboundLocalVariable
                                     args = (instance, res, ) if api.is_instance_method else (res, )
-                                    if inspect.iscoroutinefunction(api.on_disconnect):
+                                    if inspect.iscoroutinefunction(api.on_disconnect) or\
+                                        (hasattr(api.on_disconnect, '__func__') and
+                                         inspect.iscoroutinefunction(api.on_disconnect.__func__)):
                                         await api.on_disconnect(*args)
                                     else:
                                         api.on_disconnect(*args)
