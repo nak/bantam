@@ -62,6 +62,24 @@ AsyncApi = Callable[['WebApplication', Request], Awaitable[StreamResponse]]
 PathLike = Union[Path, str]
 MAX_CLIENTS = 1024 ** 2
 
+# noinspection PyBroadException
+try:
+    # UGH!!! ths underlying low-level implementation swallows
+    # exceptions we need to process, so monkey patch :-(
+    # noinspection PyUnresolvedReferences,PyProtectedMember
+    from asyncio.selector_events import _SelectorTransport
+    # noinspection PyProtectedMember
+    _orig_fatal_error = _SelectorTransport._fatal_error
+
+    def _fatal_error_override(self, exc, msg):
+        _orig_fatal_error(self, exc, msg)
+        if isinstance(exc, ConnectionError):
+            raise
+
+    _SelectorTransport._fatal_error = _fatal_error_override
+except Exception:
+    log.warn(f"This platform may not support on_disconnect for simple requests")
+
 
 def wrap(app, op):
     async def wrapper(request):
@@ -853,6 +871,17 @@ class WebApplication:
                 resp = Response(status=200, body=result if result is not None else b"Success",
                                 content_type=content_type)
                 await resp.prepare(request)
+                try:
+                    await resp.write_eof()
+                except ConnectionError:
+                    if api.on_disconnect is not None:
+                        if inspect.iscoroutinefunction(api.on_disconnect) or \
+                                (hasattr(api.on_disconnect, '__func__') and
+                                 inspect.iscoroutinefunction(api.on_disconnect.__func__)):
+                            await api.on_disconnect(result)
+                        else:
+                            api.on_disconnect(result)
+                    raise
                 return resp
         finally:
             # noinspection PyUnresolvedReferences,PyProtectedMember
