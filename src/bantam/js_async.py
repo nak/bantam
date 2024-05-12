@@ -144,7 +144,7 @@ class bantam {
                yield resp.value;
             } else {
                let value = new TextDecoder().decode(resp.value);
-               value = value + left_over;
+               value = left_over + value;
                let [items, last_chunk] = bantam.split_string(value);
                left_over = last_chunk;
                for (var val of items){
@@ -237,7 +237,7 @@ class bantam {
                yield resp.value;
             } else {
                let value = new TextDecoder().decode(resp.value);
-               value = value + left_over;
+               value = left_over + value;
                let [items, last_chunk] = bantam.split_string(value);
                left_over = last_chunk;
                for (var val of items){
