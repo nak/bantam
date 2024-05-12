@@ -87,6 +87,12 @@ class bantam_UUID{
 
 class bantam {
 
+    static split_string(str){
+        let values = str.split('\\0');
+        return [values.slice(0, -1), values.slice(-1)[0]];
+        
+    }
+
     static compute_query(param_map){
         let c = '?';
         let params = '';
@@ -122,6 +128,7 @@ class bantam {
         let result = await fetch(route + bantam.compute_query(param_map),
                                  {method:'GET', duplex: 'half', headers: {'Content-Type': content_type}});
         let reader = await result.body.getReader();
+        let left_over = "";
         while (true){
             if (result.status < 200 || result.status > 299){
                 let statusBody = await reader.read();
@@ -137,7 +144,10 @@ class bantam {
                yield resp.value;
             } else {
                let value = new TextDecoder().decode(resp.value);
-               for (var val of value.split('\\0')){
+               value = value + left_over;
+               let [items, last_chunk] = bantam.split_string(value);
+               left_over = last_chunk;
+               for (var val of items){
                    if(val){
                       yield convert(val);
                    }
@@ -211,6 +221,7 @@ class bantam {
                                        duplex: 'half', body: JSON.stringify(param_map)});
         }
         let reader = await body.body.getReader();
+        let left_over = "";
         while (true){
             if (body.status < 200 || body.status > 299){
                 let statusBody = await reader.read();
@@ -226,7 +237,10 @@ class bantam {
                yield resp.value;
             } else {
                let value = new TextDecoder().decode(resp.value);
-               for (var val of value.split('\\0')){
+               value = value + left_over;
+               let [items, last_chunk] = bantam.split_string(value);
+               left_over = last_chunk;
+               for (var val of items){
                    if(val){
                       yield convert(val);
                    }

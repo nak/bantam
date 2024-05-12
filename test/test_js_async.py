@@ -15,6 +15,7 @@ from bantam.http import WebApplication
 
 import sys
 sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'example'))
 from class_rest_get import RestAPIExampleAsync
 
 
