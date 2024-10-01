@@ -2,8 +2,10 @@
 package for conversions to/from text or json
 """
 import dataclasses
+import datetime
 import json
 import typing
+import uuid
 from typing import Type, Any, Optional
 from enum import Enum
 assert typing
@@ -21,6 +23,10 @@ def normalize_to_json_compat(val: Any) -> Any:
         json_data = normalize_to_json_compat(val.value)
     elif type(val) in (str, int, float, bool):
         json_data = val
+    elif type(val) in (datetime.datetime, ):
+        json_data = val.isoformat()
+    elif type(val) in (uuid.UUID, ):
+        json_data = str(val)
     elif type(val) in [dict] or (getattr(type(val), '_name', None) in ('Dict', 'Mapping')):
         json_data = {}
         for key, value in val.items():
@@ -62,6 +68,10 @@ def normalize_from_json(json_data, typ) -> Any:
         return json_data
     elif typ in (int, float):
         return typ(json_data)
+    elif typ in (datetime.datetime, ):
+        return datetime.datetime.fromisoformat(json_data)
+    elif typ in (uuid.UUID, ):
+        return uuid.UUID(json_data)
     elif typ == bool:
         return str(json_data).lower() == 'true'
     elif getattr(typ, '_name', None) in ('Dict', 'Mapping'):
@@ -101,6 +111,10 @@ def to_str(val: Any) -> Optional[str]:
         return str(val).lower()
     elif type(val) in (str, int, float):
         return str(val)
+    elif type(val) in (datetime.datetime, ):
+        return val.isoformat()
+    elif type(val) in (uuid.UUID, ):
+        return str(val)
     elif type(val) in [dict] or (getattr(type(val), '_name', None) in ('Dict', 'Mapping')):
         val = normalize_to_json_compat(val)
         return json.dumps(val)
@@ -129,6 +143,7 @@ def from_str(image: str, typ: Type) -> Any:
             # TODO: cannot really distinguish when return type is Optional[bytes] whether
             #   None or bytes() should be returned
             return None
+        # noinspection PyUnresolvedReferences
         typ = typ.__args__[0]
     #######
     if _issubclass_safe(typ, Enum):
@@ -137,6 +152,10 @@ def from_str(image: str, typ: Type) -> Any:
         return image
     elif typ in (int, float):
         return typ(image)
+    elif typ in (datetime.datetime, ):
+        return datetime.datetime.fromisoformat(image)
+    elif typ in (uuid.UUID,):
+        return uuid.UUID(image)
     elif typ == bool:
         return image.lower() == 'true'
     elif getattr(typ, '_name', None) in ('Dict', 'List', 'Mapping'):

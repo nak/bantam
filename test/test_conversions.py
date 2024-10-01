@@ -1,4 +1,6 @@
+import datetime
 import json
+import uuid
 from dataclasses import dataclass
 from typing import Dict, List, Union, Tuple, Set, Optional
 
@@ -57,12 +59,21 @@ class Test:
     def test_int_from_str(self):
         assert from_str("1234", int) == 1234
 
+    def test_uuid_from_str(self):
+        u = uuid.uuid4()
+        assert from_str(str(u), uuid.UUID) == u
+
     def test_optional_int_from_str(self):
         assert from_str("1234", Optional[int]) == 1234
         assert from_str('', Optional[int]) == None
 
+    def test_datetime_from_str(self):
+        d = datetime.datetime.now()
+        assert from_str(d.isoformat(), datetime.datetime) == d
+        assert normalize_from_json(d.isoformat(), datetime.datetime) == d
+
     def test_float_from_str(self):
-        assert from_str("-9.3345", float) == pytest.approx(-9.3345)
+        assert from_str("", float) == pytest.approx(-9.3345)
         assert normalize_from_json('9.3345', float) == pytest.approx(9.3345)
 
     def test_bool_from_str(self):

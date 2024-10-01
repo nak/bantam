@@ -8,7 +8,7 @@ and import all of the classes containing @web_api's
 to be generated. Then add the main entry poitn to generate the javascript code, like so:
 
 >>> from bantam.js_async import JavascriptGeneratorAsync
-... from salutations import Greetings
+... from salutations import Greetings  # noqa
 ...
 ... if __name__ == '__main__':
 ...     with open('salutations.js', 'bw') as output:
@@ -56,8 +56,10 @@ async generators/iterator usage.
 
 
 """
+import datetime
 import inspect
 import sys
+import uuid
 
 from aiohttp.web_response import Response, StreamResponse
 from typing import Callable, Awaitable, Union
@@ -261,7 +263,11 @@ class bantam {
     static convert_str(text){
         return text;
     }
-
+    
+    static convert_datetime(text){
+       return new Date(text);
+    }
+    
     static convert_bytes(text){
         let encoder = new TextEncoder();
         return encoder.encode(text);
@@ -446,7 +452,9 @@ class bantam {
         else:
             convert = {str: "convert_str",
                        int: "convert_int",
+                       datetime.datetime: "convert_datetime",
                        float: "convert_float",
+                       uuid.UUID: "convert_str",
                        bool: "convert_bool",
                        bytes: "convert_bytes",
                        dict: "convert_complex",
