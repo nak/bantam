@@ -66,6 +66,7 @@ class Test:
     def test_optional_int_from_str(self):
         assert from_str("1234", Optional[int]) == 1234
         assert from_str('', Optional[int]) == None
+        assert from_str('', int | None) == None
 
     def test_datetime_from_str(self):
         d = datetime.datetime.now()
@@ -73,7 +74,7 @@ class Test:
         assert normalize_from_json(d.isoformat(), datetime.datetime) == d
 
     def test_float_from_str(self):
-        assert from_str("", float) == pytest.approx(-9.3345)
+        assert from_str("-9.3345", float) == pytest.approx(-9.3345)
         assert normalize_from_json('9.3345', float) == pytest.approx(9.3345)
 
     def test_bool_from_str(self):
@@ -97,6 +98,8 @@ class Test:
         d = {'name': 'Jane', 'val': 34}
         assert from_str(json.dumps(d), Dict[str, Union[str, int]]) == d
         assert normalize_from_json(d, Dict[str, Union[str, int]]) == d
+        assert from_str(json.dumps(d), Dict[str, str | int]) == d
+        assert normalize_from_json(d, Dict[str, str | int]) == d
 
     def test_dataclass_from_str(self):
 

@@ -48,6 +48,8 @@ def normalize_from_json(json_data, typ) -> Any:
         for arg in typ.__args__:
             if arg in (str, int, float) and type(json_data) == arg:
                 return json_data
+            elif json_data == '' and arg is types.NoneType:
+                return None
             elif arg in (str, int, float):  # json  data does not match this type
                 continue
             # noinspection PyBroadException
@@ -60,6 +62,8 @@ def normalize_from_json(json_data, typ) -> Any:
         for arg in typ.__args__:
             if arg in (str, int, float, ) and type(json_data) == arg:
                 return json_data
+            elif json_data == '' and (arg is types.NoneType or arg is None):
+                return None
             elif arg in (str, int, float):
                 continue
             # noinspection PyBroadException
@@ -148,15 +152,23 @@ def _issubclass_safe(typ, clazz):
         return False
 
 
-def from_str(image: str, typ: Type) -> Any:
-    if hasattr(typ, '_name') and (str(typ).startswith('typing.Union') or str(typ).startswith('typing.Optional')):
+def from_str(image: str, typ: Type | types.UnionType) -> Any:
+    if (hasattr(typ, '_name') and (str(typ).startswith('typing.Union') or str(typ).startswith('typing.Optional')))\
+            or isinstance(typ, types.UnionType):
         # noinspection PyUnresolvedReferences
-        allow_none = str(typ).startswith('typing.Optional')
+        allow_none = str(typ).startswith('typing.Optional') or None in typ.__args__
         if allow_none and not image:
             # TODO: cannot really distinguish when return type is Optional[bytes] whether
             #   None or bytes() should be returned
             return None
         # noinspection PyUnresolvedReferences
+        for arg in typ.__args__:
+            try:
+                if not image and arg is types.NoneType:
+                    return None
+                return arg(image)
+            except ValueError:
+                continue
         typ = typ.__args__[0]
     #######
     if _issubclass_safe(typ, Enum):
