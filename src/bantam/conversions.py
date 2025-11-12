@@ -4,6 +4,7 @@ package for conversions to/from text or json
 import dataclasses
 import datetime
 import json
+import types
 import typing
 import uuid
 from typing import Type, Any, Optional
@@ -43,6 +44,18 @@ def normalize_to_json_compat(val: Any) -> Any:
 def normalize_from_json(json_data, typ) -> Any:
     if typ is None or json_data is None:
         return None
+    if isinstance(typ, types.UnionType):
+        for arg in typ.__args__:
+            if arg in (str, int, float) and type(json_data) == arg:
+                return json_data
+            elif arg in (str, int, float):  # json  data does not match this type
+                continue
+            # noinspection PyBroadException
+            try:
+                return normalize_from_json(json_data, arg)  # recurse on arg type
+            except Exception:
+                continue
+        raise TypeError(f"Cannot convert json data '{json_data}' to any of the Union types '{typ}'")
     if hasattr(typ, '_name') and (str(typ).startswith('typing.Union') or str(typ).startswith('typing.Optional')):
         for arg in typ.__args__:
             if arg in (str, int, float, ) and type(json_data) == arg:
