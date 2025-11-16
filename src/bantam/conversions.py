@@ -7,6 +7,7 @@ import json
 import types
 import typing
 import uuid
+from pathlib import Path
 from typing import Type, Any, Optional
 from enum import Enum
 assert typing
@@ -22,7 +23,7 @@ def normalize_to_json_compat(val: Any) -> Any:
                 json_data[key] = normalize_to_json_compat(json_data[key])
     elif isinstance(val, Enum):
         json_data = normalize_to_json_compat(val.value)
-    elif type(val) in (str, int, float, bool):
+    elif type(val) in (str, int, float, bool, Path):
         json_data = val
     elif type(val) in (datetime.datetime, ):
         json_data = val.isoformat()
@@ -46,11 +47,13 @@ def normalize_from_json(json_data, typ) -> Any:
         return None
     if isinstance(typ, types.UnionType):
         for arg in typ.__args__:
-            if arg in (str, int, float) and type(json_data) == arg:
+            if arg in (str, int, float, bool) and type(json_data) == arg:
                 return json_data
+            elif arg in (Path, ) and type(json_data) == str:
+                return Path(json_data)
             elif json_data == '' and arg is types.NoneType:
                 return None
-            elif arg in (str, int, float):  # json  data does not match this type
+            elif arg in (str, int, float, bool):  # json  data does not match this type
                 continue
             # noinspection PyBroadException
             try:
@@ -62,6 +65,8 @@ def normalize_from_json(json_data, typ) -> Any:
         for arg in typ.__args__:
             if arg in (str, int, float, ) and type(json_data) == arg:
                 return json_data
+            elif json_data == '' and arg is types.NoneType:
+                return None
             elif json_data == '' and (arg is types.NoneType or arg is None):
                 return None
             elif arg in (str, int, float):
@@ -83,7 +88,7 @@ def normalize_from_json(json_data, typ) -> Any:
         return typ(json_data)
     elif typ == str:
         return json_data
-    elif typ in (int, float):
+    elif typ in (int, float, Path):
         return typ(json_data)
     elif typ in (datetime.datetime, ):
         return datetime.datetime.fromisoformat(json_data)
@@ -126,7 +131,7 @@ def to_str(val: Any) -> Optional[str]:
         return val.value
     elif type(val) == bool:
         return str(val).lower()
-    elif type(val) in (str, int, float):
+    elif type(val) in (str, int, float, Path):
         return str(val)
     elif type(val) in (datetime.datetime, ):
         return val.isoformat()
@@ -175,7 +180,7 @@ def from_str(image: str, typ: Type | types.UnionType) -> Any:
         return typ(image)
     elif typ == str:
         return image
-    elif typ in (int, float):
+    elif typ in (int, float, Path):
         return typ(image)
     elif typ in (datetime.datetime, ):
         return datetime.datetime.fromisoformat(image)
