@@ -2,6 +2,7 @@ import datetime
 import json
 import uuid
 from dataclasses import dataclass
+from pathlib import Path, PosixPath
 from typing import Dict, List, Union, Tuple, Set, Optional
 
 import pytest
@@ -76,6 +77,10 @@ class Test:
     def test_float_from_str(self):
         assert from_str("-9.3345", float) == pytest.approx(-9.3345)
         assert normalize_from_json('9.3345', float) == pytest.approx(9.3345)
+
+    def test_path_from_str(self):
+        assert from_str("/usr/bin", Path) == Path("/usr/bin")
+        assert normalize_from_json("/no/path", PosixPath) == Path("/no/path")
 
     def test_bool_from_str(self):
         assert from_str("TruE", bool) is True

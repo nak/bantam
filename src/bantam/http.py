@@ -395,6 +395,7 @@ class WebApplication:
                     modules: List[str],
                     host: Optional[str] = None,
                     port: Optional[int] = None,
+                    sock: socket.socket = None,
                     path: Optional[str] = None,
                     initializer: Optional[Callable[[], None]] = None,
                     shutdown_timeout: float = 60.0,
@@ -475,7 +476,9 @@ class WebApplication:
         if self._static_path:
             with suppress(Exception):
                 self._generate_rest_docs()
-        await web_run_app(app=self._web_app, host=host, port=port, path=path, shutdown_timeout=shutdown_timeout,
+        if host is not None and sock is not None:
+            raise ValueError("Cannot specify both host/port and sock parameters")
+        await web_run_app(app=self._web_app, host=host, port=port, sock=sock, path=path, shutdown_timeout=shutdown_timeout,
                           ssl_context=ssl_context, backlog=backlog, handle_signals=handle_signals,
                           reuse_address=reuse_address, reuse_port=reuse_port)
 
