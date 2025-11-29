@@ -4,6 +4,7 @@ package for conversions to/from text or json
 import dataclasses
 import datetime
 import json
+import pickle
 import types
 import typing
 import uuid
@@ -32,7 +33,7 @@ def normalize_to_json_compat(val: Any) -> Any:
         json_data = val.isoformat()
     elif type(val) in (uuid.UUID, PosixPath, WindowsPath, Path):
         json_data = str(val)
-    elif type(val) in [dict] or (getattr(type(val), '_name', None) in ('Dict', 'Mapping')):
+    elif type(val) in [dict] or (getattr(type(val), '_name', None) in ('Dict', 'Mapping', 'frozendict')):
         json_data = {}
         for key, value in val.items():
             json_data[to_str(key)] = normalize_to_json_compat(value)
@@ -43,7 +44,10 @@ def normalize_to_json_compat(val: Any) -> Any:
         for value in val:
             json_data.append(normalize_to_json_compat(value))
     else:
-        raise RuntimeError(f"Unsupported type for conversion: {type(val)}")
+        try:
+            return normalize_to_json_compat([int(b) for b in pickle.dumps(val)])
+        except Exception:
+            raise RuntimeError(f"Unsupported type for conversion and type is not pickable: {type(val)}")
     return json_data
 
 def normalize_from_json(json_data, typ: Type) -> Any:
@@ -107,12 +111,18 @@ def normalize_from_json(json_data, typ: Type) -> Any:
         return str(json_data).lower() == 'true'
     elif typ == Path:
         return Path(json_data)
-    elif getattr(typ, '_name', None) in ('Dict', 'Mapping') or typ in (dict, ):
+    elif getattr(typ, '_name', None) in ('Dict', 'Mapping',) or getattr(typ, '__name__') in ('frozendict', ):
         key_typ, elem_typ = typ.__args__
-        return {
-            normalize_from_json(k, key_typ):  normalize_from_json(v, elem_typ)
-            for k, v in json_data.items()
-        }
+        try:
+            return typ({
+                normalize_from_json(k, key_typ):  normalize_from_json(v, elem_typ)
+                for k, v in json_data.items()
+            })
+        except Exception:
+            return {
+                normalize_from_json(k, key_typ):  normalize_from_json(v, elem_typ)
+                for k, v in json_data.items()
+            }
     elif getattr(typ, '_name', None) in ('List', ) or typ in (list, ):
         return [normalize_from_json(value, typ.__args__[0]) for index, value in enumerate(json_data)]
     elif typ in (frozenset, FrozenList):
@@ -133,12 +143,18 @@ def normalize_from_json(json_data, typ: Type) -> Any:
             for name, field in typ.__dataclass_fields__.items()
         })
     else:
-        raise TypeError(f"Unsupported typ for web api: '{typ}'")
+        try:
+            data = [int(s) for s in json_data[1:-1].split(',')]
+            return pickle.loads(bytes(data))
+        except Exception as e:
+           raise TypeError(f"Unsupported typ for web api: '{typ}' [{e}]")
 
 
 def to_str(val: Any) -> Optional[str]:
     if val is None:
         return None
+    if type(val) == bool:
+        return str(val).lower()
     try:
         typ = type(val)
         if typ(str(val)) == val:
@@ -168,7 +184,11 @@ def to_str(val: Any) -> Optional[str]:
         getattr(type(val), '__name__') in ('frozenset', 'FrozenList'):
         val = normalize_to_json_compat(list(val))
         return json.dumps(val)
-    raise TypeError(f"Type of value, '{type(val)}' is not supported in web api")
+    else:
+        try:
+            json.dumps([int(b) for b in pickle.dumps(val)])
+        except Exception as e:
+            raise TypeError(f"Type of value, '{type(val)}' is not supported in web api: {e}")
 
 
 def _issubclass_safe(typ, clazz):
@@ -211,7 +231,7 @@ def from_str(image: str, typ: Type | types.UnionType) -> Any:
     elif typ == bool:
         return image.lower() == 'true'
     elif getattr(typ, '_name', None) in ('Dict', 'List', 'Mapping', 'frozenset', 'FrozenList') or\
-        getattr(typ, '__name__', None) in ('Dict', 'List', 'Mapping', 'frozenset', 'FrozenList'):
+        getattr(typ, '__name__', None) in ('Dict', 'List', 'Mapping', 'frozenset', 'FrozenList', 'frozendict'):
         return normalize_from_json(json.loads(image), typ)
     elif getattr(typ, '_name', None) in ('Set', 'Tuple', 'frozenset', 'FrozenList'):
         return normalize_from_json(json.loads(image), typ)
@@ -222,4 +242,8 @@ def from_str(image: str, typ: Type | types.UnionType) -> Any:
             raise ValueError(f"Got a return of {image} for a return type of None")
         return None
     else:
-        raise TypeError(f"Unsupported typ for web api: '{typ}'")
+        try:
+            data = [int(s) for s in image[1:-1].split(',')]
+            return pickle.loads(bytes(data))
+        except Exception as e:
+            raise TypeError(f"Unsupported typ for web api: '{typ}' [{e}]")

@@ -1,5 +1,7 @@
 import datetime
 import json
+import pickle
+import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path, PosixPath
@@ -7,11 +9,34 @@ from typing import Dict, List, Union, Tuple, Set, Optional
 
 import pytest
 from frozenlist import FrozenList
+from frozendict import frozendict
 
 from bantam.conversions import to_str, from_str, normalize_from_json
 
+class Pickleable:
+
+    def __init__(self, host: str = None, port: int = None, semaphore = None):
+        self.host = host or "localhost"
+        self.port = port or 12345
+        self.semaphore = semaphore or threading.Semaphore(0)
+
+    def __getstate__(self):
+        result = self.__dict__.copy()
+        del result['semaphore']
+        return result
+
+    def __setstate__(self, state):
+        self.host, self.port = state['host'], state['port']
+        self.semaphore = threading.Semaphore(0)
+
+
+
 
 class Test:
+
+    def test_to_str_from_pickleable(self):
+        assert to_str(Pickleable()) == to_str(pickle.dumps(Pickleable()))
+
     def test_to_str_from_tuple(self):
         assert to_str((1, '2')) == json.dumps([1, '2'])
 
@@ -75,6 +100,17 @@ class Test:
             'subdata': {'s': "name", 'l': [1, -5, 34]}
         })
 
+    def test_pickleable_from_str(self):
+        text = str([int(b) for b in pickle.dumps(Pickleable())])
+        item = from_str(text, Pickleable)
+        assert item.host == "localhost"
+        assert item.port == 12345
+        assert isinstance(item.semaphore, threading.Semaphore)
+        item = normalize_from_json(text, Pickleable)
+        assert item.host == "localhost"
+        assert item.port == 12345
+        assert isinstance(item.semaphore, threading.Semaphore)
+
     def test_int_from_str(self):
         assert from_str("1234", int) == 1234
 
@@ -133,6 +169,13 @@ class Test:
         assert normalize_from_json(d, Dict[str, Union[str, int]]) == d
         assert from_str(json.dumps(d), Dict[str, str | int]) == d
         assert normalize_from_json(d, Dict[str, str | int]) == d
+
+    def test_frozendict_from_str(self):
+        d = {'name': 'Jane', 'val': 34}
+        assert from_str(json.dumps(d), frozendict[str, Union[str, int]]) == frozendict(d)
+        assert normalize_from_json(d, frozendict[str, Union[str, int]]) == frozendict(d)
+        assert from_str(json.dumps(d), frozendict[str, str | int]) ==  frozendict(d)
+        assert normalize_from_json(d, frozendict[str, str | int]) ==  frozendict(d)
 
     def test_dataclass_from_str(self):
 
