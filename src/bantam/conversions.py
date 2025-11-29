@@ -26,11 +26,11 @@ def normalize_to_json_compat(val: Any) -> Any:
                 json_data[key] = normalize_to_json_compat(json_data[key])
     elif isinstance(val, Enum):
         json_data = normalize_to_json_compat(val.value)
-    elif type(val) in (str, int, float, bool, PosixPath, WindowsPath, Path):
+    elif type(val) in (str, int, float, bool):
         json_data = val
     elif type(val) in (datetime.datetime, ):
         json_data = val.isoformat()
-    elif type(val) in (uuid.UUID, Path, ):
+    elif type(val) in (uuid.UUID, PosixPath, WindowsPath, Path):
         json_data = str(val)
     elif type(val) in [dict] or (getattr(type(val), '_name', None) in ('Dict', 'Mapping')):
         json_data = {}

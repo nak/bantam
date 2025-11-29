@@ -29,6 +29,10 @@ class Test:
         assert to_str(True) == "true"
         assert to_str(False) == "false"
 
+    def test_to_str_from_path(self):
+        assert to_str(Path("/usr/bin")) == "/usr/bin"
+        assert to_str(PosixPath("/usr/bin")) == "/usr/bin"
+
     def test_to_str_from_list(self):
         assert to_str(['a', 'b', 'c']) == json.dumps(['a', 'b', 'c'])
 
@@ -94,7 +98,9 @@ class Test:
 
     def test_path_from_str(self):
         assert from_str("/usr/bin", Path) == Path("/usr/bin")
+        assert from_str("/usr/bin", PosixPath) == Path("/usr/bin")
         assert normalize_from_json("/no/path", PosixPath) == Path("/no/path")
+        assert normalize_from_json("/no/path", Path) == Path("/no/path")
 
     def test_bool_from_str(self):
         assert from_str("TruE", bool) is True
