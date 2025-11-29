@@ -9,6 +9,7 @@ import importlib
 import inspect
 import json
 import os
+import socket
 import sys
 import traceback
 import types
@@ -111,7 +112,7 @@ class WebApplication:
     :param js_bundle_name: the name of the javascript file, **without** extension, where the client-side API
        will be generated, if provided
     """
-    _context: Dict[Awaitable, Request] = {}
+    _context: Dict[Any, Request] = {}
     _class_instance_methods: Dict[Type, List[API]] = {}
     _instance_methods_class_map: Dict[API, Type] = {}
     _instance_methods: List[API] = []
@@ -1045,7 +1046,6 @@ class WebApplication:
                         await response.write(f"Exception in server-side logic: {e}".encode('utf-8'))
                         with suppress(Exception):
                             await response.write_eof()
-                        return response
                 finally:
                     if not prepared:
                         await response.prepare(request)

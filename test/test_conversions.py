@@ -6,6 +6,7 @@ from pathlib import Path, PosixPath
 from typing import Dict, List, Union, Tuple, Set, Optional
 
 import pytest
+from frozenlist import FrozenList
 
 from bantam.conversions import to_str, from_str, normalize_from_json
 
@@ -30,6 +31,19 @@ class Test:
 
     def test_to_str_from_list(self):
         assert to_str(['a', 'b', 'c']) == json.dumps(['a', 'b', 'c'])
+
+    def test_to_str_from_frozenlist(self):
+        assert to_str(FrozenList(['a', 'b', 'c'])) == json.dumps(['a', 'b', 'c'])
+
+    def test_to_str_from_frozenset(self):
+        assert to_str(frozenset(['a', 'b', 'c'])) in (
+            json.dumps(['a', 'b', 'c']),
+            json.dumps(['a', 'c', 'b']),
+            json.dumps(['b', 'a', 'c']),
+            json.dumps(['b', 'c', 'a']),
+            json.dumps(['c', 'b', 'a']),
+            json.dumps(['c', 'a', 'b']),
+        )
 
     def test_to_str_from_dict(self):
         assert to_str({'a': 1, 'b': 3, 'c': 'HERE'}) == json.dumps({'a': 1, 'b': 3, 'c': 'HERE'})
@@ -90,6 +104,14 @@ class Test:
     def test_list_from_str(self):
         assert from_str("[0, -3834, 3419]", List[int]) == [0, -3834, 3419]
         assert normalize_from_json(['0', '-3834', '3419'], List[int]) == [0, -3834, 3419]
+
+    def test_frozenset_from_str(self):
+        assert from_str("[0, -3834, 3419]", frozenset[int]) == frozenset([0, -3834, 3419])
+        assert normalize_from_json(['0', '-3834', '3419'], frozenset[int]) == frozenset([0, -3834, 3419])
+
+    def test_frozenlist_from_str(self):
+        assert from_str("[0, -3834, 3419]", FrozenList[int]) == FrozenList([0, -3834, 3419])
+        assert normalize_from_json(['0', '-3834', '3419'], FrozenList[int]) == FrozenList([0, -3834, 3419])
 
     def test_set_from_str(self):
         assert from_str("[0, -3834, 3419]", Set[int]) == {0, -3834, 3419}

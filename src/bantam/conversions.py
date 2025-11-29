@@ -10,6 +10,9 @@ import uuid
 from pathlib import Path, WindowsPath, PosixPath
 from typing import Type, Any, Optional
 from enum import Enum
+
+from frozenlist import FrozenList
+
 assert typing
 
 
@@ -27,13 +30,15 @@ def normalize_to_json_compat(val: Any) -> Any:
         json_data = val
     elif type(val) in (datetime.datetime, ):
         json_data = val.isoformat()
-    elif type(val) in (uuid.UUID, ):
+    elif type(val) in (uuid.UUID, Path, ):
         json_data = str(val)
     elif type(val) in [dict] or (getattr(type(val), '_name', None) in ('Dict', 'Mapping')):
         json_data = {}
         for key, value in val.items():
             json_data[to_str(key)] = normalize_to_json_compat(value)
-    elif type(val) in [list, set, tuple] or (getattr(type(val), '_name', None) in ('List', 'Set', 'Tuple')):
+    elif type(val) in [list, set, tuple, frozenset, FrozenList]\
+            or (getattr(type(val), '_name', None) in ('List', 'Set' 'Tuple'))\
+            or getattr(type(val), '__name__', None) in ('frozenset', 'FrozenList'):
         json_data = []
         for value in val:
             json_data.append(normalize_to_json_compat(value))
@@ -41,8 +46,7 @@ def normalize_to_json_compat(val: Any) -> Any:
         raise RuntimeError(f"Unsupported type for conversion: {type(val)}")
     return json_data
 
-
-def normalize_from_json(json_data, typ) -> Any:
+def normalize_from_json(json_data, typ: Type) -> Any:
     if typ is None or json_data is None:
         return None
     try:
@@ -67,7 +71,7 @@ def normalize_from_json(json_data, typ) -> Any:
                 continue
         raise TypeError(f"Cannot convert json data '{json_data}' to any of the Union types '{typ}'")
     if hasattr(typ, '_name') and (str(typ).startswith('typing.Union') or str(typ).startswith('typing.Optional')):
-        for arg in typ.__args__:
+        for arg in typ.__args__:  # type: ignore
             if arg in (str, int, float, ) and type(json_data) == arg:
                 return json_data
             elif json_data == '' and arg is types.NoneType:
@@ -82,8 +86,8 @@ def normalize_from_json(json_data, typ) -> Any:
             except Exception:
                 continue
     if _issubclass_safe(typ, Enum):
-        for key in typ.__members__:
-            t = type(typ.__members__[key].value)
+        for key in typ.__members__:  # type: ignore
+            t = type(typ.__members__[key].value)  # type: ignore
             # noinspection PyBroadException
             try:
                 v = normalize_from_json(json_data, t)
@@ -101,16 +105,22 @@ def normalize_from_json(json_data, typ) -> Any:
         return uuid.UUID(json_data)
     elif typ == bool:
         return str(json_data).lower() == 'true'
-    elif getattr(typ, '_name', None) in ('Dict', 'Mapping'):
+    elif typ == Path:
+        return Path(json_data)
+    elif getattr(typ, '_name', None) in ('Dict', 'Mapping') or typ in (dict, ):
         key_typ, elem_typ = typ.__args__
         return {
             normalize_from_json(k, key_typ):  normalize_from_json(v, elem_typ)
             for k, v in json_data.items()
         }
-    elif getattr(typ, '_name', None) in ('List', ):
+    elif getattr(typ, '_name', None) in ('List', ) or typ in (list, ):
         return [normalize_from_json(value, typ.__args__[0]) for index, value in enumerate(json_data)]
+    elif typ in (frozenset, FrozenList):
+        return typ([normalize_from_json(value, typ.__args__[0]) for index, value in enumerate(json_data)])
     elif getattr(typ, '_name', None) in ('Set', ):
         return {normalize_from_json(value, typ.__args__[0]) for index, value in enumerate(json_data)}
+    elif getattr(typ, '__name__', None) in ('frozenset', 'FrozenList'):
+        return typ(normalize_from_json(value, typ.__args__[0]) for index, value in enumerate(json_data))
     elif getattr(typ, '_name', None) in ('Tuple', ):
         if typ.__args__[-1] == type(None):  # var args
             return tuple(normalize_from_json(value, typ.__args__[0]) for index, value in enumerate(json_data))
@@ -154,7 +164,8 @@ def to_str(val: Any) -> Optional[str]:
     elif type(val) in [list] or (getattr(type(val), '_name', None) in ('List', )):
         val = normalize_to_json_compat(val)
         return json.dumps(val)
-    elif type(val) in [set, tuple] or (getattr(type(val), '_name', None)) in ('Set', 'Tuple', ):
+    elif type(val) in [set, tuple, frozenset, FrozenList] or (getattr(type(val), '_name', None)) in ('Set', 'Tuple') or\
+        getattr(type(val), '__name__') in ('frozenset', 'FrozenList'):
         val = normalize_to_json_compat(list(val))
         return json.dumps(val)
     raise TypeError(f"Type of value, '{type(val)}' is not supported in web api")
@@ -199,9 +210,10 @@ def from_str(image: str, typ: Type | types.UnionType) -> Any:
         return uuid.UUID(image)
     elif typ == bool:
         return image.lower() == 'true'
-    elif getattr(typ, '_name', None) in ('Dict', 'List', 'Mapping'):
+    elif getattr(typ, '_name', None) in ('Dict', 'List', 'Mapping', 'frozenset', 'FrozenList') or\
+        getattr(typ, '__name__', None) in ('Dict', 'List', 'Mapping', 'frozenset', 'FrozenList'):
         return normalize_from_json(json.loads(image), typ)
-    elif getattr(typ, '_name', None) in ('Set', 'Tuple'):
+    elif getattr(typ, '_name', None) in ('Set', 'Tuple', 'frozenset', 'FrozenList'):
         return normalize_from_json(json.loads(image), typ)
     elif hasattr(typ, '__dataclass_fields__'):
         return normalize_from_json(json.loads(image), typ)
